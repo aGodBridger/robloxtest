@@ -63,7 +63,7 @@ local workspace = game:GetService("Workspace")
 local httpService = game:GetService("HttpService")
 local teleportService = game:GetService("TeleportService")
 --local pathfinding = loadstring(readfile("pathfinding.lua"))()
-local pathfinding = loadstring(game:HttpGet("https://raw.githubusercontent.com/iRay888/wapus/refs/heads/main/pathfinding.lua"))() -- i didnt make this
+local pathfinding = loadstring(game:HttpGet("https://raw.githubusercontent.com/aGodBridger/robloxtest/main/pathfinding.lua"))() -- i didnt make this
 
 local spawnUpdates = 0
 local ignoredPlayers = {}
@@ -155,7 +155,7 @@ runService.Heartbeat:Connect(function()
 end)
 
 local function hopServers(min)
-	queue_on_teleport("getgenv().knifeBotSettings = game:GetService('HttpService'):JSONDecode( [==[ " .. httpService:JSONEncode(getgenv().knifeBotSettings) .. " ]==] );" .. "task.wait(10);" .. request({Url = "https://raw.githubusercontent.com/iRay888/wapus/refs/heads/main/knifebot.lua", Method = "GET"}).Body)
+	queue_on_teleport("getgenv().knifeBotSettings = game:GetService('HttpService'):JSONDecode( [==[ " .. httpService:JSONEncode(getgenv().knifeBotSettings) .. " ]==] );" .. "task.wait(10);" .. request({Url = "https://raw.githubusercontent.com/aGodBridger/robloxtest/main/knifebot.lua", Method = "GET"}).Body)
 	local cachedServers = httpService:JSONDecode(readfile("votekick cache/" .. localPlayer.Name .. ".json"))
 	local minimum = min or 25
 
@@ -538,7 +538,7 @@ elseif environment == "Nihon" and not executed then
         ]])
     end
 else
-    queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/iRay888/wapus/refs/heads/main/hook.lua") .. settingsFixString .. "task.wait(5);" .. source)
+    queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/aGodBridger/robloxtest/main/hook.lua") .. settingsFixString .. "task.wait(5);" .. source)
     setfflag("DebugRunParallelLuaOnMainThread", "True")
     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
 end

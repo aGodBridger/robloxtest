@@ -88,7 +88,7 @@ local function serverHop()
             end)
         end)
 
-        queue_on_teleport(request({Url = "https://raw.githubusercontent.com/iRay888/wapus/refs/heads/main/votekick.lua", Method = "GET"}).Body)
+        queue_on_teleport(request({Url = "https://raw.githubusercontent.com/aGodBridger/robloxtest/main/votekick.lua", Method = "GET"}).Body)
         teleportService:TeleportToPlaceInstance(game.PlaceId, serverList[1].id)
     end)
 end

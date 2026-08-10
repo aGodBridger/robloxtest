@@ -2912,7 +2912,7 @@ LPH_JIT_MAX(function() -- Main Cheat
     --astar.interval = 12  --  8 to 16 is good
     --astar.ignorelist = {workspace.Players, camera, ignore, hitboxObjects, backtrackObjects}
 
-    local pathfinding = loadstring(game:HttpGet("https://raw.githubusercontent.com/iRay888/wapus/refs/heads/main/pathfinding.lua"))() -- i didnt make this, i did fix it tho cuz pro
+    local pathfinding = loadstring(game:HttpGet("https://raw.githubusercontent.com/aGodBridger/robloxtest/main/pathfinding.lua"))() -- i didnt make this, i did fix it tho cuz pro
 
     local physicsignore = {workspace.Terrain, ignore, workspace.Players, camera, hitboxObjects, backtrackObjects}
     local raycastparameters = RaycastParams.new()
