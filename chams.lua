@@ -1,5 +1,9 @@
 -- // VisionWare Chams
 
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
 local connectionList = {}
 
 local cache = {}
@@ -11,8 +15,18 @@ local ChamConfig = {
 	ThroughWalls = true,          -- see players through walls
 	Color = Color3.fromRGB(0, 255, 0),
 	HideOriginal = true,          -- hide the actual body (only glow shows)
-	RefreshRate = 0
+	IgnoreLocal = true,           -- never cham your own character
 }
+
+local function refreshParts(data)
+	for _, part in ipairs(data.model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			if not table.find(data.parts, part) then
+				table.insert(data.parts, part)
+			end
+		end
+	end
+end
 
 function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency)
 	if model then
@@ -26,41 +40,38 @@ function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency
 			throughwalls = ChamConfig.ThroughWalls,
 			hide = (type(hideParts) == "table" and hideParts)
 		}
-		local parts = model:GetDescendants()
-		table.insert(parts, model)
 		table.insert(cache, data)
-
-		local function uncache()
-			table.remove(cache, table.find(cache, data))
-		end
 
 		local function classify(part)
 			if part:IsA("BasePart") then
-				table.insert(controlled, part)
+				if not table.find(controlled, part) then
+					table.insert(controlled, part)
+				end
 			elseif deleteImages and (part.ClassName == "Decal" or part.ClassName == "Texture") then
 				part:Destroy()
 			end
 		end
 
-		for _, part in ipairs(parts) do
-			classify(part)
-		end
+		refreshParts(data)
 
 		table.insert(connectionList, model.DescendantAdded:Connect(classify))
+
+		local function uncache()
+			table.remove(cache, table.find(cache, data))
+		end
 
 		return properties, uncache
 	end
 end
 
 -- Rendering loop for chams
-table.insert(connectionList, game:GetService("RunService").RenderStepped:Connect(function()
+table.insert(connectionList, RunService.RenderStepped:Connect(function()
 	for _, data in ipairs(cache) do
-		if data.model:IsDescendantOf(workspace) then
+		if data.model and data.model:IsDescendantOf(workspace) then
+			refreshParts(data)
 			for _, part in ipairs(data.parts) do
 				if data.throughwalls then
 					part.Transparency = data.properties.Transparency or 1
-					part.CanCollide = false
-					part.CanQuery = false
 				elseif data.hide and table.find(data.hide, part) then
 					part.Transparency = 1
 				elseif (part.Transparency < 1) or data.ignore then
@@ -73,7 +84,7 @@ table.insert(connectionList, game:GetService("RunService").RenderStepped:Connect
 				end
 			end
 			if data.throughwalls then
-				local highlight = data.model:FindFirstChildOfClass("Highlight")
+				local highlight = data.model:FindFirstChild("VisionCham")
 				if not highlight then
 					highlight = Instance.new("Highlight")
 					highlight.Name = "VisionCham"
@@ -82,7 +93,7 @@ table.insert(connectionList, game:GetService("RunService").RenderStepped:Connect
 				highlight.FillColor = data.properties.Color or ChamConfig.Color
 				highlight.FillTransparency = 1
 				highlight.OutlineColor = data.properties.Color or ChamConfig.Color
-				highlight.OutlineTransparency = 0
+				highlight.OutlineTransparency = 0.35
 				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 			end
 		end
@@ -91,6 +102,7 @@ end))
 
 local function applyToCharacter(player, character)
 	if not character then return end
+	if ChamConfig.IgnoreLocal and player == LocalPlayer then return end
 	if character:FindFirstChild("VisionCham") then return end
 	cham.new(character, {
 		Color = ChamConfig.Color,
@@ -99,11 +111,8 @@ local function applyToCharacter(player, character)
 end
 
 if ChamConfig.Enabled then
-	local Players = game:GetService("Players")
-	local function onCharacter(player, character)
-		applyToCharacter(player, character or player.Character or player.CharacterAdded:Wait())
-	end
 	table.insert(connectionList, Players.PlayerAdded:Connect(function(player)
+		if ChamConfig.IgnoreLocal and player == LocalPlayer then return end
 		table.insert(connectionList, player.CharacterAdded:Connect(function(character)
 			applyToCharacter(player, character)
 		end))
@@ -112,7 +121,10 @@ if ChamConfig.Enabled then
 		end
 	end))
 	for _, player in ipairs(Players:GetPlayers()) do
-		onCharacter(player)
+		if not (ChamConfig.IgnoreLocal and player == LocalPlayer) then
+			local character = player.Character or player.CharacterAdded:Wait()
+			applyToCharacter(player, character)
+		end
 	end
 end
 
