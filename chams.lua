@@ -6,27 +6,17 @@ local LocalPlayer = Players.LocalPlayer
 
 local connectionList = {}
 
-local cache = {}
-
 cham = cham or {}
 
 local ChamConfig = {
 	Enabled = true,
-	ThroughWalls = true,          -- see players through walls
 	Color = Color3.fromRGB(0, 255, 0),
-	HideOriginal = true,          -- hide the actual body (only glow shows)
-	IgnoreLocal = true,           -- never cham your own character
+	Material = Enum.Material.ForceField,  -- how the body looks; ForceField glows through walls
+	Transparency = 0,
+	IgnoreLocal = true,                   -- never cham your own character
 }
 
-local function refreshParts(data)
-	for _, part in ipairs(data.model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			if not table.find(data.parts, part) then
-				table.insert(data.parts, part)
-			end
-		end
-	end
-end
+local cache = {}
 
 function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency)
 	if model then
@@ -37,10 +27,13 @@ function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency
 			parts = controlled,
 			properties = properties,
 			ignore = ignoreTransparency,
-			throughwalls = ChamConfig.ThroughWalls,
 			hide = (type(hideParts) == "table" and hideParts)
 		}
 		table.insert(cache, data)
+
+		local function uncache()
+			table.remove(cache, table.find(cache, data))
+		end
 
 		local function classify(part)
 			if part:IsA("BasePart") then
@@ -52,27 +45,27 @@ function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency
 			end
 		end
 
-		refreshParts(data)
+		local parts = model:GetDescendants()
+		for _, part in ipairs(parts) do
+			classify(part)
+		end
 
 		table.insert(connectionList, model.DescendantAdded:Connect(classify))
-
-		local function uncache()
-			table.remove(cache, table.find(cache, data))
-		end
 
 		return properties, uncache
 	end
 end
 
--- Rendering loop for chams
+-- Rendering loop (colors every part each frame, like your version)
+local lastChamCheck = 0
 table.insert(connectionList, RunService.RenderStepped:Connect(function()
+	if tick() - lastChamCheck < 1 / 60 then return end
+	lastChamCheck = tick()
+
 	for _, data in ipairs(cache) do
-		if data.model and data.model:IsDescendantOf(workspace) then
-			refreshParts(data)
+		if data.model:IsDescendantOf(workspace) then
 			for _, part in ipairs(data.parts) do
-				if data.throughwalls then
-					part.Transparency = data.properties.Transparency or 1
-				elseif data.hide and table.find(data.hide, part) then
+				if data.hide and table.find(data.hide, part) then
 					part.Transparency = 1
 				elseif (part.Transparency < 1) or data.ignore then
 					for i, v in pairs(data.properties) do
@@ -83,30 +76,21 @@ table.insert(connectionList, RunService.RenderStepped:Connect(function()
 					end
 				end
 			end
-			if data.throughwalls then
-				local highlight = data.model:FindFirstChild("VisionCham")
-				if not highlight then
-					highlight = Instance.new("Highlight")
-					highlight.Name = "VisionCham"
-					highlight.Parent = data.model
-				end
-				highlight.FillColor = data.properties.Color or ChamConfig.Color
-				highlight.FillTransparency = 1
-				highlight.OutlineColor = data.properties.Color or ChamConfig.Color
-				highlight.OutlineTransparency = 0.35
-				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-			end
 		end
 	end
 end))
 
+local applied = {}
+
 local function applyToCharacter(player, character)
 	if not character then return end
 	if ChamConfig.IgnoreLocal and player == LocalPlayer then return end
-	if character:FindFirstChild("VisionCham") then return end
+	if applied[character] then return end
+	applied[character] = true
 	cham.new(character, {
 		Color = ChamConfig.Color,
-		Transparency = ChamConfig.HideOriginal and 1 or 0.7,
+		Material = ChamConfig.Material,
+		Transparency = ChamConfig.Transparency,
 	}, nil, nil, true)
 end
 
