@@ -42,7 +42,7 @@ function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency
 			end
 		end
 
-		for _, part in parts do
+		for _, part in ipairs(parts) do
 			classify(part)
 		end
 
@@ -54,9 +54,9 @@ end
 
 -- Rendering loop for chams
 table.insert(connectionList, game:GetService("RunService").RenderStepped:Connect(function()
-	for _, data in cache do
+	for _, data in ipairs(cache) do
 		if data.model:IsDescendantOf(workspace) then
-			for _, part in data.parts do
+			for _, part in ipairs(data.parts) do
 				if data.throughwalls then
 					part.Transparency = data.properties.Transparency or 1
 					part.CanCollide = false
@@ -64,7 +64,7 @@ table.insert(connectionList, game:GetService("RunService").RenderStepped:Connect
 				elseif data.hide and table.find(data.hide, part) then
 					part.Transparency = 1
 				elseif (part.Transparency < 1) or data.ignore then
-					for i, v in data.properties do
+					for i, v in pairs(data.properties) do
 						if i == "Color" and part:IsA("SpecialMesh") then
 							part.VertexColor = Vector3.new(v.R * 1.2, v.G * 1.2, v.B * 1.2)
 						end
@@ -91,7 +91,7 @@ end))
 
 local function applyToCharacter(player, character)
 	if not character then return end
-	if character:FindFirstChildOfClass("Highlight") then return end
+	if character:FindFirstChild("VisionCham") then return end
 	cham.new(character, {
 		Color = ChamConfig.Color,
 		Transparency = ChamConfig.HideOriginal and 1 or 0.7,
