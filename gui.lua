@@ -4681,5 +4681,8 @@ end
 -- Force GUI to be visible
 Library:SetOpen(true)
 
+-- Expose the library so other scripts (e.g. chams.lua) can hook into it
+getgenv().Library = Library
+
 -- Print success message
 print("VisionWare Loaded Successfully! Press END to toggle.")
