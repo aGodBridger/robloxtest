@@ -1,11 +1,14 @@
--- // VisionWare Chams (self-contained)
--- // Highlights all players when the toggle is on. Works standalone.
+-- // VisionWare Chams
+-- // Hooks into the main VisionWare GUI (loaded by gui.lua)
+
+local Library = _G.Library or (getgenv and getgenv().Library)
+if not Library then
+	warn("[VisionWare] gui.lua must be loaded before chams.lua")
+	return
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local LocalPlayer = Players.LocalPlayer
 
 local Config = {
 	Enabled = false,
@@ -91,110 +94,54 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
--- ===== Minimal GUI =====
-local GUI = Instance.new("ScreenGui")
-GUI.Name = "VisionWare"
-GUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-GUI.Parent = game:GetService("CoreGui")
-
-local Window = Instance.new("Frame")
-Window.Size = UDim2.new(0, 210, 0, 60)
-Window.Position = UDim2.new(0.5, -105, 0.5, -30)
-Window.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-Window.BorderColor3 = Color3.fromRGB(0, 0, 0)
-Window.Visible = true
-Window.Parent = GUI
-
-local Inline = Instance.new("Frame")
-Inline.Size = UDim2.new(1, -2, 1, -2)
-Inline.Position = UDim2.new(0, 1, 0, 1)
-Inline.BackgroundColor3 = Color3.fromRGB(24, 24, 24)
-Inline.BorderSizePixel = 0
-Inline.MouseButton1Down = nil
-Inline.Parent = Window
-
-local Title = Instance.new("TextLabel")
-Title.Text = "VisionWare Chams"
-Title.Size = UDim2.new(1, 0, 0, 22)
-Title.BackgroundTransparency = 1
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 13
-Title.Parent = Inline
-
--- Toggle
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(1, -12, 0, 22)
-ToggleButton.Position = UDim2.new(0, 6, 0, 24)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-ToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
-ToggleButton.AutoButtonColor = false
-ToggleButton.Text = "Enable Chams: OFF"
-ToggleButton.TextColor3 = Color3.fromRGB(220, 220, 220)
-ToggleButton.TextSize = 13
-ToggleButton.Parent = Inline
-
--- Color picker (simple preset swatches)
-local Swatches = {}
-for i, hex in ipairs({ "FF58A6", "FF0000", "00FF00", "0000FF", "FFFF00", "FFFFFF" }) do
-	local swatch = Instance.new("TextButton")
-	swatch.Size = UDim2.new(0, 26, 0, 16)
-	swatch.Position = UDim2.new(0, 6 + (i - 1) * 30, 0, 48 + (i > 3 and 18 or 0))
-	swatch.BackgroundColor3 = Color3.fromHex(hex)
-	swatch.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	swatch.AutoButtonColor = false
-	swatch.Parent = Inline
-	swatch.Size = UDim2.new(0, 26, 0, 16)
-	swatch.Position = UDim2.new(0, 6 + ((i - 1) % 3) * 30, 0, 48 + ((i - 1) >= 3 and 18 or 0))
-	swatch.MouseButton1Click:Connect(function()
-		Config.Color = swatch.BackgroundColor3
-		for character, highlight in pairs(activeHighlights) do
-			if highlight then
-				highlight.FillColor = Config.Color
-				highlight.OutlineColor = Config.Color
-			end
+-- // Hook into the main GUI's "Visuals" page
+local function getVisualsPage()
+	for _, page in ipairs(Library.Pages) do
+		if page.Name == "Visuals" then
+			return page
 		end
-	end)
-	table.insert(Swatches, swatch)
+	end
+	-- Fallback: first page
+	return Library.Pages[1]
 end
 
--- Resize window to fit both rows of swatches
-Window.Size = UDim2.new(0, 210, 0, 84)
+local VisualsPage = getVisualsPage()
+if not VisualsPage then
+	warn("[VisionWare] Could not find a page to attach Chams to")
+	return
+end
 
--- Drag window
-local dragging, dragOffset = false
-Window.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		local mouse = game:GetService("UserInputService"):GetMouseLocation()
-		dragOffset = UDim2.new(0, mouse.X - Window.AbsolutePosition.X, 0, mouse.Y - Window.AbsolutePosition.Y)
-	end
-end)
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-end)
-UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local mouse = UserInputService:GetMouseLocation()
-		Window.Position = UDim2.new(0, mouse.X - dragOffset.X.Offset, 0, mouse.Y - dragOffset.Y.Offset)
-	end
-end)
+local Section = VisualsPage:Section({
+	Name = "Chams",
+	side = #VisualsPage.Sections == 0 and "left" or "right",
+})
 
--- Toggle visibility with END key
-UserInputService.InputBegan:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.End then
-		Window.Visible = not Window.Visible
-	end
-end)
+Section:Toggle({
+	Name = "Enable Chams",
+	Flag = "ChamsEnabled",
+	callback = function(State)
+		Config.Enabled = State
+		if State then
+			highlightAllPlayers()
+		else
+			clearAllHighlights()
+		end
+	end,
+})
 
-ToggleButton.MouseButton1Click:Connect(function()
-	Config.Enabled = not Config.Enabled
-	ToggleButton.Text = "Enable Chams: " .. (Config.Enabled and "ON" or "OFF")
-	ToggleButton.BackgroundColor3 = Config.Enabled and Config.Color or Color3.fromRGB(40, 40, 40)
-	if Config.Enabled then
-		highlightAllPlayers()
-	else
-		clearAllHighlights()
-	end
-end)
+Section:Colorpicker({
+	Name = "Cham Color",
+	Flag = "ChamsColor",
+	Default = Config.Color,
+	Callback = function(Color)
+		Config.Color = Color
+		for character, highlight in pairs(activeHighlights) do
+			if highlight then
+				highlight.FillColor = Color
+				highlight.OutlineColor = Color
+			end
+		end
+	end,
+})
 
-print("[VisionWare] Chams loaded")
+print("[VisionWare] Chams hooked into GUI successfully!")

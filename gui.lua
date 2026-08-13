@@ -4682,7 +4682,8 @@ end
 Library:SetOpen(true)
 
 -- Expose the library so other scripts (e.g. chams.lua) can hook into it
-getgenv().Library = Library
+if getgenv then getgenv().Library = Library end
+_G.Library = Library
 
 -- Print success message
 print("VisionWare Loaded Successfully! Press END to toggle.")
