@@ -1,115 +1,113 @@
 -- // VisionWare Chams
+-- // Run after gui.lua so the Library is available
 
-local RunService = game:GetService("RunService")
+local Library = Library or getgenv().Library
+if not Library then
+	warn("[VisionWare] gui.lua must be loaded before chams.lua")
+	return
+end
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local connectionList = {}
-
-cham = cham or {}
-
-local ChamConfig = {
-	Enabled = true,
-	Color = Color3.fromRGB(0, 255, 0),
-	Material = Enum.Material.ForceField,  -- how the body looks; ForceField glows through walls
-	Transparency = 0,
-	IgnoreLocal = true,                   -- never cham your own character
+local Chams = {
+	Enabled = false,
+	Color = Color3.fromRGB(255, 88, 166),
+	FillTransparency = 0.5,
+	OutlineTransparency = 0,
 }
 
-local cache = {}
+local function addHighlight(Character)
+	if Character:FindFirstChild("VisionWareCham") then return end
+	local Highlight = Instance.new("Highlight")
+	Highlight.Name = "VisionWareCham"
+	Highlight.Parent = Character
+	Highlight.FillColor = Chams.Color
+	Highlight.FillTransparency = Chams.FillTransparency
+	Highlight.OutlineColor = Chams.Color
+	Highlight.OutlineTransparency = Chams.OutlineTransparency
+end
 
-function cham.new(model, properties, hideParts, deleteImages, ignoreTransparency)
-	if model then
-		properties = properties or {}
-		local controlled = {}
-		local data = {
-			model = model,
-			parts = controlled,
-			properties = properties,
-			ignore = ignoreTransparency,
-			hide = (type(hideParts) == "table" and hideParts)
-		}
-		table.insert(cache, data)
-
-		local function uncache()
-			table.remove(cache, table.find(cache, data))
+local function refresh()
+	if not Chams.Enabled then return end
+	for _, Player in ipairs(Players:GetPlayers()) do
+		if Player ~= LocalPlayer and Player.Character then
+			addHighlight(Player.Character)
 		end
-
-		local function classify(part)
-			if part:IsA("BasePart") then
-				if not table.find(controlled, part) then
-					table.insert(controlled, part)
-				end
-			elseif deleteImages and (part.ClassName == "Decal" or part.ClassName == "Texture") then
-				part:Destroy()
-			end
-		end
-
-		local parts = model:GetDescendants()
-		for _, part in ipairs(parts) do
-			classify(part)
-		end
-
-		table.insert(connectionList, model.DescendantAdded:Connect(classify))
-
-		return properties, uncache
 	end
 end
 
--- Rendering loop (colors every part each frame, like your version)
-local lastChamCheck = 0
-table.insert(connectionList, RunService.RenderStepped:Connect(function()
-	if tick() - lastChamCheck < 1 / 60 then return end
-	lastChamCheck = tick()
-
-	for _, data in ipairs(cache) do
-		if data.model:IsDescendantOf(workspace) then
-			for _, part in ipairs(data.parts) do
-				if data.hide and table.find(data.hide, part) then
-					part.Transparency = 1
-				elseif (part.Transparency < 1) or data.ignore then
-					for i, v in pairs(data.properties) do
-						if i == "Color" and part:IsA("SpecialMesh") then
-							part.VertexColor = Vector3.new(v.R * 1.2, v.G * 1.2, v.B * 1.2)
-						end
-						part[i] = v
-					end
-				end
+local function cleanup()
+	for _, Player in ipairs(Players:GetPlayers()) do
+		if Player.Character then
+			local Highlight = Player.Character:FindFirstChild("VisionWareCham")
+			if Highlight then
+				Highlight:Destroy()
 			end
 		end
 	end
-end))
-
-local applied = {}
-
-local function applyToCharacter(player, character)
-	if not character then return end
-	if ChamConfig.IgnoreLocal and player == LocalPlayer then return end
-	if applied[character] then return end
-	applied[character] = true
-	cham.new(character, {
-		Color = ChamConfig.Color,
-		Material = ChamConfig.Material,
-		Transparency = ChamConfig.Transparency,
-	}, nil, nil, true)
 end
 
-if ChamConfig.Enabled then
-	table.insert(connectionList, Players.PlayerAdded:Connect(function(player)
-		if ChamConfig.IgnoreLocal and player == LocalPlayer then return end
-		table.insert(connectionList, player.CharacterAdded:Connect(function(character)
-			applyToCharacter(player, character)
-		end))
-		if player.Character then
-			applyToCharacter(player, player.Character)
-		end
-	end))
-	for _, player in ipairs(Players:GetPlayers()) do
-		if not (ChamConfig.IgnoreLocal and player == LocalPlayer) then
-			local character = player.Character or player.CharacterAdded:Wait()
-			applyToCharacter(player, character)
-		end
+local function toggle(State)
+	Chams.Enabled = State
+	if State then
+		refresh()
+	else
+		cleanup()
 	end
 end
 
-print("[VisionWare] Chams Loaded!")
+local function setupPlayer(Player)
+	if Player == LocalPlayer then return end
+	Player.CharacterAdded:Connect(function(Character)
+		if Chams.Enabled then
+			task.wait(0.25)
+			addHighlight(Character)
+		end
+	end)
+end
+
+for _, Player in ipairs(Players:GetPlayers()) do
+	setupPlayer(Player)
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+
+Players.PlayerRemoving:Connect(function(Player)
+	if Player.Character then
+		local Highlight = Player.Character:FindFirstChild("VisionWareCham")
+		if Highlight then
+			Highlight:Destroy()
+		end
+	end
+end)
+
+local Window = Library:Window({ Name = "VisionWare", Amount = 2 })
+local VisualsPage = Window:Page({ Name = "Visuals" })
+local VisualsSection = VisualsPage:Section({ Name = "Chams", side = "left" })
+
+VisualsSection:Toggle({
+	Name = "Enable Chams",
+	flag = "ChamsEnabled",
+	callback = toggle,
+})
+
+VisualsSection:Colorpicker({
+	Name = "Cham Color",
+	Flag = "ChamsColor",
+	Default = Chams.Color,
+	Callback = function(Color)
+		Chams.Color = Color
+		for _, Player in ipairs(Players:GetPlayers()) do
+			if Player.Character then
+				local Highlight = Player.Character:FindFirstChild("VisionWareCham")
+				if Highlight then
+					Highlight.FillColor = Color
+					Highlight.OutlineColor = Color
+				end
+			end
+		end
+	end,
+})
+
+print("[VisionWare] Chams loaded")

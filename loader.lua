@@ -6,7 +6,6 @@ local Loader = {
 	Repo = "robloxtest",             -- Repo name
 	Branch = "main",                 -- Branch (main or master)
 	Files = {
-		"chams.lua",
 		"gui.lua",
 		-- add more files below, e.g. "esp.lua",
 	},
