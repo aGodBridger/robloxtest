@@ -21,7 +21,10 @@ local function flag(name, default)
 end
 
 local function newDrawing(kind)
-	local ok, d = pcall(Drawing.new, kind)
+	local ok, d = pcall(function()
+		if not Drawing then return nil end
+		return Drawing.new(kind)
+	end)
 	if ok and d then return d end
 	return nil
 end
@@ -46,8 +49,9 @@ local BOX3D_EDGES = {
 }
 
 local function getProjectedBox(character)
-	local bbox = character:GetBoundingBox()
-	local cf, size = bbox.CFrame, bbox.Size
+	local ok, bcf, bsize = pcall(character.GetBoundingBox, character)
+	if not ok or not bcf then return nil end
+	local cf, size = bcf, bsize
 	local half = size / 2
 	local projected = {}
 	local anyInFront = false
@@ -75,7 +79,7 @@ local function boxRect(projected)
 end
 
 local function getPlayerColor(player)
-	if player.Team and player.Team == LocalPlayer.Team then
+	if LocalPlayer and player.Team and player.Team == LocalPlayer.Team then
 		return flag("ESP_TeamColor", Color3.fromRGB(86, 227, 120))
 	end
 	return flag("ESP_EnemyColor", Color3.fromRGB(255, 88, 166))
