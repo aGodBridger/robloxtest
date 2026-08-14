@@ -112,6 +112,8 @@ local function isCharacterVisible(character)
 	return false
 end
 
+local EspObjects = {}
+
 local function createEspForPlayer(player)
 	local esp = {
 		Player = player,
@@ -134,8 +136,6 @@ local function createEspForPlayer(player)
 	EspObjects[player] = esp
 	return esp
 end
-
-local EspObjects = {}
 
 local function hideAll(esp)
 	for i = 1, 12 do if esp.boxLines[i] then esp.boxLines[i].Visible = false end end
@@ -265,10 +265,10 @@ local function renderEsp(esp)
 
 	if boxes then
 		if boxType == "3D Box" then
-			local bbox = character:GetBoundingBox()
+			local bboxCF, bboxSize = character:GetBoundingBox()
 			local projected = {}
 			for i, off in ipairs(CORNER_OFFSETS) do
-				local p = worldToScreen(bbox.CFrame * ((bbox.Size / 2) * off))
+				local p = worldToScreen(bboxCF * ((bboxSize / 2) * off))
 				if p then projected[i] = p end
 			end
 			for e, edge in ipairs(BOX3D_EDGES) do
@@ -352,7 +352,7 @@ local function renderEsp(esp)
 		esp.distance.Size = 13
 		esp.distance.Center = true
 		esp.distance.Outline = true
-		esp.distance.Font = 3 -- monospace, matches GUI's mono look
+		pcall(function() esp.distance.Font = Enum.Font.Code end)
 		esp.distance.Transparency = alpha
 	else
 		if esp.distance then esp.distance.Visible = false end
