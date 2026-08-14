@@ -18,13 +18,46 @@ local function getChamsStateFromGUI()
 	if _G.Library and _G.Library.Flags then
 		local isEnabled = _G.Library.Flags.ESP_Chams or false
 		local color = _G.Library.Flags.ESP_ChamsColor or Color3.fromRGB(255, 255, 255)
-		return isEnabled, color
+		local opacity = _G.Library.Flags.ESP_Opacity or 75
+		local visibleOnly = _G.Library.Flags.ESP_VisibleOnly or false
+		return isEnabled, color, opacity, visibleOnly
 	end
-	return false, Color3.fromRGB(255, 255, 255)
+	return false, Color3.fromRGB(255, 255, 255), 75, false
+end
+
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Raycast check: is the target character visible to the camera?
+local function isCharacterVisible(character, visibleOnly)
+	if not visibleOnly then return true end
+	if not character or not character:IsA("Model") then return true end
+	if not Camera then return true end
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("Head")
+		or character:FindFirstChild("Torso")
+	if not root then return true end
+
+	local origin = Camera.CFrame.Position
+	local target = root.Position
+
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = { character, LocalPlayer and LocalPlayer.Character }
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	params.IgnoreWater = true
+
+	local result = Workspace:Raycast(origin, target - origin, params)
+	if not result then return true end
+	if result.Instance and result.Instance:IsDescendantOf(character) then
+		return true
+	end
+	return false
 end
 
 -- Create highlight for character
-local function createHighlightForCharacter(character, color)
+local function createHighlightForCharacter(character, color, opacity)
 	if not character or not character:IsA("Model") then
 		return nil
 	end
@@ -38,8 +71,8 @@ local function createHighlightForCharacter(character, color)
 	highlight.Name = "PlayerHighlight"
 	highlight.FillColor = color
 	highlight.OutlineColor = color
-	highlight.FillTransparency = HIGHLIGHT_CONFIG.FillTransparency
-	highlight.OutlineTransparency = HIGHLIGHT_CONFIG.OutlineTransparency
+	highlight.FillTransparency = 1 - (opacity / 100)
+	highlight.OutlineTransparency = 0
 	highlight.DepthMode = HIGHLIGHT_CONFIG.DepthMode
 	highlight.Enabled = true
 	highlight.Adornee = character
@@ -50,11 +83,25 @@ local function createHighlightForCharacter(character, color)
 	return highlight
 end
 
+-- Update opacity on all active highlights
+local function updateAllHighlightOpacity(opacity)
+	for character, highlight in pairs(activeHighlights) do
+		if highlight and character and character:IsA("Model") then
+			highlight.FillTransparency = 1 - (opacity / 100)
+		end
+	end
+end
+
 -- Highlight all current players
-local function highlightAllPlayers(color)
+local function highlightAllPlayers(color, opacity, visibleOnly)
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character then
-			createHighlightForCharacter(player.Character, color)
+			local character = player.Character
+			if isCharacterVisible(character, visibleOnly) then
+				createHighlightForCharacter(character, color, opacity)
+			else
+				removeHighlightFromCharacter(character)
+			end
 		end
 	end
 end
@@ -85,9 +132,9 @@ local function onCharacterAdded(character, player)
 	task.wait(0.1)
 	
 	if character and character:IsA("Model") and character:FindFirstChild("Humanoid") then
-		local _, color = getChamsStateFromGUI()
-		if HIGHLIGHT_CONFIG.Enabled then
-			createHighlightForCharacter(character, color)
+		local isEnabled, color, opacity, visibleOnly = getChamsStateFromGUI()
+		if isEnabled and isCharacterVisible(character, visibleOnly) then
+			createHighlightForCharacter(character, color, opacity)
 		end
 	end
 end
@@ -131,18 +178,18 @@ Players.PlayerRemoving:Connect(onPlayerRemoving)
 task.spawn(function()
 	local lastEnabled = false
 	local lastColor = Color3.fromRGB(255, 255, 255)
+	local lastOpacity = -1
+	local lastVisibleOnly = nil
 	
 	while true do
 		task.wait(0.1)
 		
-		local isEnabled, currentColor = getChamsStateFromGUI()
+		local isEnabled, currentColor, currentOpacity, currentVisibleOnly = getChamsStateFromGUI()
 		
 		-- Handle toggle changes
 		if isEnabled ~= lastEnabled then
-			HIGHLIGHT_CONFIG.Enabled = isEnabled
-			
 			if isEnabled then
-				highlightAllPlayers(currentColor)
+				highlightAllPlayers(currentColor, currentOpacity, currentVisibleOnly)
 				print("[Chams] Enabled")
 			else
 				for character, highlight in pairs(activeHighlights) do
@@ -156,13 +203,28 @@ task.spawn(function()
 			
 			lastEnabled = isEnabled
 			lastColor = currentColor
+			lastOpacity = currentOpacity
+			lastVisibleOnly = currentVisibleOnly
 		end
 		
-		-- Handle color changes
-		if isEnabled and currentColor ~= lastColor then
-			updateAllHighlightColors(currentColor)
-			print("[Chams] Color updated")
-			lastColor = currentColor
+		if isEnabled then
+			-- Handle color changes
+			if currentColor ~= lastColor then
+				updateAllHighlightColors(currentColor)
+				lastColor = currentColor
+			end
+			
+			-- Handle opacity changes
+			if currentOpacity ~= lastOpacity then
+				updateAllHighlightOpacity(currentOpacity)
+				lastOpacity = currentOpacity
+			end
+			
+			-- Handle visible-only changes (re-evaluate which players are highlighted)
+			if currentVisibleOnly ~= lastVisibleOnly then
+				highlightAllPlayers(currentColor, currentOpacity, currentVisibleOnly)
+				lastVisibleOnly = currentVisibleOnly
+			end
 		end
 	end
 end)

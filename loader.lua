@@ -7,7 +7,8 @@ local Loader = {
 	Branch = "main",                 -- Branch (main or master)
 	Files = {
 		"gui.lua",
-		"chams.lua"
+		"chams.lua",
+		"esp.lua",
 		-- add more files below, e.g. "esp.lua",
 	},
 	Silent = false,                  -- true = hide "loaded" messages
