@@ -78,6 +78,40 @@ local function boxRect(projected)
 	return minX, maxX, minY, maxY
 end
 
+-- Compute world-space vertical extent of the character (top of head to feet)
+local function getBodyScreenRect(character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("Torso")
+	if not root then return nil end
+
+	local minY, maxY = math.huge, -math.huge
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local half = part.Size.Y / 2
+			minY = math.min(minY, part.Position.Y - half)
+			maxY = math.max(maxY, part.Position.Y + half)
+		end
+	end
+	if minY == math.huge then return nil end
+
+	local cx, _, cz = root.Position.X, 0, root.Position.Z
+	local top = worldToScreen(Vector3.new(cx, maxY, cz))
+	local bottom = worldToScreen(Vector3.new(cx, minY, cz))
+	if not top or not bottom then return nil end
+
+	local height = math.abs(bottom.Y - top.Y)
+	if height < 2 then return nil end
+	local width = height * 0.6
+	local centerX = (top.X + bottom.X) / 2
+
+	return {
+		minX = centerX - width / 2,
+		maxX = centerX + width / 2,
+		minY = math.min(top.Y, bottom.Y),
+		maxY = math.max(top.Y, bottom.Y),
+	}
+end
+
 local function getPlayerColor(player)
 	if LocalPlayer and player.Team and player.Team == LocalPlayer.Team then
 		return flag("ESP_TeamColor", Color3.fromRGB(86, 227, 120))
@@ -175,18 +209,30 @@ local function renderEsp(esp)
 	if not isCharacterVisible(character) then hideAll(esp); return end
 
 	local projected = getProjectedBox(character)
-	if not projected then hideAll(esp); return end
+	local rect = getBodyScreenRect(character)
+	if not projected and not rect then hideAll(esp); return end
 
 	local color = getPlayerColor(player)
 	local alpha = flag("ESP_Opacity", 75) / 100
-	local minX, maxX, minY, maxY = boxRect(projected)
-	local width = maxX - minX
-	local height = maxY - minY
-	local centerX = (minX + maxX) / 2
-	local topY = minY
-
-	-- ===== Box =====
 	local boxType = flag("ESP_BoxType", "2D Box")
+
+	local minX, maxX, minY, maxY
+	local width, height, centerX, topY
+
+	if rect then
+		minX, maxX, minY, maxY = rect.minX, rect.maxX, rect.minY, rect.maxY
+		width = maxX - minX
+		height = maxY - minY
+		centerX = (minX + maxX) / 2
+		topY = minY
+	else
+		minX, maxX, minY, maxY = boxRect(projected)
+		width = maxX - minX
+		height = maxY - minY
+		centerX = (minX + maxX) / 2
+		topY = minY
+	end
+
 	local boxes = flag("ESP_Boxes", true)
 	local outline = flag("ESP_Outline", true)
 
@@ -196,7 +242,7 @@ local function renderEsp(esp)
 	if esp.boxFilled then esp.boxFilled.Visible = false end
 
 	if boxes then
-		if boxType == "3D Box" then
+		if boxType == "3D Box" and projected then
 			for e, edge in ipairs(BOX3D_EDGES) do
 				local a, b = projected[edge[1]], projected[edge[2]]
 				if a and b then

@@ -1,243 +1,207 @@
 -- // VisionWare Chams
--- // Syncs with GUI chams toggle and color picker
+-- // Syncs with gui.lua ESP page. When "Visible Only" is on, only visible parts get highlighted.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
-local activeHighlights = {}
-
-local HIGHLIGHT_CONFIG = {
-	FillTransparency = 0.5,
-	OutlineTransparency = 0,
-	DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-	Enabled = false
-}
-
--- Get current chams state from GUI flags
-local function getChamsStateFromGUI()
-	if _G.Library and _G.Library.Flags then
-		local isEnabled = _G.Library.Flags.ESP_Chams or false
-		local color = _G.Library.Flags.ESP_ChamsColor or Color3.fromRGB(255, 255, 255)
-		local opacity = _G.Library.Flags.ESP_Opacity or 75
-		local visibleOnly = _G.Library.Flags.ESP_VisibleOnly or false
-		return isEnabled, color, opacity, visibleOnly
-	end
-	return false, Color3.fromRGB(255, 255, 255), 75, false
-end
-
 local Workspace = game:GetService("Workspace")
-local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Raycast check: is the target character visible to the camera?
-local function isCharacterVisible(character, visibleOnly)
-	if not visibleOnly then return true end
-	if not character or not character:IsA("Model") then return true end
-	if not Camera then return true end
-
-	local root = character:FindFirstChild("HumanoidRootPart")
-		or character:FindFirstChild("Head")
-		or character:FindFirstChild("Torso")
-	if not root then return true end
-
-	local origin = Camera.CFrame.Position
-	local target = root.Position
-
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { character, LocalPlayer and LocalPlayer.Character }
-	params.FilterType = Enum.RaycastFilterType.Blacklist
-	params.IgnoreWater = true
-
-	local result = Workspace:Raycast(origin, target - origin, params)
-	if not result then return true end
-	if result.Instance and result.Instance:IsDescendantOf(character) then
-		return true
-	end
-	return false
+local function getLibrary()
+	return _G.Library or (getgenv and getgenv().Library)
 end
 
--- Create highlight for character
-local function createHighlightForCharacter(character, color, opacity)
-	if not character or not character:IsA("Model") then
-		return nil
-	end
-	
-	local existingHighlight = character:FindFirstChild("PlayerHighlight")
-	if existingHighlight then
-		return existingHighlight
-	end
-	
+local function flag(name, default)
+	local L = getLibrary()
+	local v = L and L.Flags and L.Flags[name]
+	if v == nil then return default end
+	return v
+end
+
+local DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+-- state[character] = { model = Highlight|nil, parts = { [part] = Highlight } }
+local state = {}
+
+local function newHighlight(parent, adornee, color, opacity)
 	local highlight = Instance.new("Highlight")
-	highlight.Name = "PlayerHighlight"
+	highlight.Name = "VisionWareCham"
+	highlight.Adornee = adornee
 	highlight.FillColor = color
 	highlight.OutlineColor = color
 	highlight.FillTransparency = 1 - (opacity / 100)
 	highlight.OutlineTransparency = 0
-	highlight.DepthMode = HIGHLIGHT_CONFIG.DepthMode
+	highlight.DepthMode = DepthMode
 	highlight.Enabled = true
-	highlight.Adornee = character
-	highlight.Parent = character
-	
-	activeHighlights[character] = highlight
-	
+	highlight.Parent = parent
 	return highlight
 end
 
--- Update opacity on all active highlights
-local function updateAllHighlightOpacity(opacity)
-	for character, highlight in pairs(activeHighlights) do
-		if highlight and character and character:IsA("Model") then
-			highlight.FillTransparency = 1 - (opacity / 100)
+local function removeState(character)
+	local s = state[character]
+	if s then
+		if s.model then pcall(function() s.model:Destroy() end) end
+		for part, h in pairs(s.parts) do
+			if h then pcall(function() h:Destroy() end) end
 		end
+		state[character] = nil
 	end
 end
 
--- Highlight all current players
-local function highlightAllPlayers(color, opacity, visibleOnly)
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player.Character then
-			local character = player.Character
-			if isCharacterVisible(character, visibleOnly) then
-				createHighlightForCharacter(character, color, opacity)
-			else
-				removeHighlightFromCharacter(character)
-			end
+local function raycastVisible(camera, origin, target, character)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = { character, LocalPlayer and LocalPlayer.Character }
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	params.IgnoreWater = true
+	local result = Workspace:Raycast(origin, target - origin, params)
+	if not result then return true end
+	if result.Instance and result.Instance:IsDescendantOf(character) then return true end
+	return false
+end
+
+local function partVisible(camera, character, part)
+	local origin = camera.CFrame.Position
+	local dir = part.Position - origin
+	if dir.Magnitude < 0.01 then return true end
+	return raycastVisible(camera, origin, part.Position, character)
+end
+
+local function updateCharacter(character, color, opacity, visibleOnly)
+	local humanoid = character:FindFirstChild("Humanoid")
+	if not humanoid then removeState(character); return end
+
+	local camera = Workspace.CurrentCamera
+	if not camera then return end
+
+	local s = state[character]
+	if not s then
+		s = { model = nil, parts = {} }
+		state[character] = s
+	end
+
+	if not visibleOnly then
+		-- Whole-model highlight, remove leftover per-part highlights
+		if not s.model or not s.model.Parent then
+			s.model = newHighlight(character, character, color, opacity)
+		else
+			s.model.FillColor = color
+			s.model.OutlineColor = color
+			s.model.FillTransparency = 1 - (opacity / 100)
 		end
-	end
-end
-
--- Remove highlight from character
-local function removeHighlightFromCharacter(character)
-	if character and character:IsA("Model") then
-		local highlight = character:FindFirstChild("PlayerHighlight")
-		if highlight then
-			highlight:Destroy()
-			activeHighlights[character] = nil
+		for part, h in pairs(s.parts) do
+			if h then pcall(function() h:Destroy() end) end
 		end
-	end
-end
-
--- Update all highlight colors
-local function updateAllHighlightColors(color)
-	for character, highlight in pairs(activeHighlights) do
-		if highlight and character and character:IsA("Model") then
-			highlight.FillColor = color
-			highlight.OutlineColor = color
+		s.parts = {}
+	else
+		-- Per-part visibility highlighting
+		if s.model then
+			pcall(function() s.model:Destroy() end)
+			s.model = nil
 		end
-	end
-end
 
--- Handle character added
-local function onCharacterAdded(character, player)
-	task.wait(0.1)
-	
-	if character and character:IsA("Model") and character:FindFirstChild("Humanoid") then
-		local isEnabled, color, opacity, visibleOnly = getChamsStateFromGUI()
-		if isEnabled and isCharacterVisible(character, visibleOnly) then
-			createHighlightForCharacter(character, color, opacity)
-		end
-	end
-end
-
--- Handle character removing
-local function onCharacterRemoving(character)
-	removeHighlightFromCharacter(character)
-end
-
--- Handle player added
-local function onPlayerAdded(player)
-	if player.Character then
-		onCharacterAdded(player.Character, player)
-	end
-	
-	player.CharacterAdded:Connect(function(character)
-		onCharacterAdded(character, player)
-	end)
-	
-	player.CharacterRemoving:Connect(function(character)
-		onCharacterRemoving(character)
-	end)
-end
-
--- Handle player removing
-local function onPlayerRemoving(player)
-	if player.Character then
-		removeHighlightFromCharacter(player.Character)
-	end
-end
-
--- Initialize existing players
-for _, player in ipairs(Players:GetPlayers()) do
-	onPlayerAdded(player)
-end
-
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
-
--- Main sync loop with GUI
-task.spawn(function()
-	local lastEnabled = false
-	local lastColor = Color3.fromRGB(255, 255, 255)
-	local lastOpacity = -1
-	local lastVisibleOnly = nil
-	
-	while true do
-		task.wait(0.1)
-		
-		local isEnabled, currentColor, currentOpacity, currentVisibleOnly = getChamsStateFromGUI()
-		
-		-- Handle toggle changes
-		if isEnabled ~= lastEnabled then
-			if isEnabled then
-				highlightAllPlayers(currentColor, currentOpacity, currentVisibleOnly)
-				print("[Chams] Enabled")
-			else
-				for character, highlight in pairs(activeHighlights) do
-					if highlight then
-						highlight:Destroy()
+		local seen = {}
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") and not part:IsA("Accessory") then
+				seen[part] = true
+				local h = s.parts[part]
+				if partVisible(camera, character, part) then
+					if not h or not h.Parent then
+						s.parts[part] = newHighlight(character, part, color, opacity)
+					else
+						h.FillColor = color
+						h.OutlineColor = color
+						h.FillTransparency = 1 - (opacity / 100)
+					end
+				else
+					if h then
+						pcall(function() h:Destroy() end)
+						s.parts[part] = nil
 					end
 				end
-				activeHighlights = {}
-				print("[Chams] Disabled")
 			end
-			
-			lastEnabled = isEnabled
-			lastColor = currentColor
-			lastOpacity = currentOpacity
-			lastVisibleOnly = currentVisibleOnly
 		end
-		
-		if isEnabled then
-			-- Handle color changes
-			if currentColor ~= lastColor then
-				updateAllHighlightColors(currentColor)
-				lastColor = currentColor
+		-- Remove highlights for parts no longer in the character
+		for part, h in pairs(s.parts) do
+			if not seen[part] then
+				if h then pcall(function() h:Destroy() end) end
+				s.parts[part] = nil
 			end
-			
-			-- Handle opacity changes
-			if currentOpacity ~= lastOpacity then
-				updateAllHighlightOpacity(currentOpacity)
-				lastOpacity = currentOpacity
-			end
-			
-			-- Handle visible-only changes (re-evaluate which players are highlighted)
-			if currentVisibleOnly ~= lastVisibleOnly then
-				highlightAllPlayers(currentColor, currentOpacity, currentVisibleOnly)
-				lastVisibleOnly = currentVisibleOnly
+		end
+	end
+end
+
+local function updateAll(color, opacity, visibleOnly)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			updateCharacter(player.Character, color, opacity, visibleOnly)
+		end
+	end
+end
+
+local function clearAll()
+	for character in pairs(state) do
+		removeState(character)
+	end
+	state = {}
+end
+
+-- ===== Player lifecycle =====
+Players.PlayerRemoving:Connect(function(player)
+	if player.Character then removeState(player.Character) end
+end)
+
+RunService.Heartbeat:Connect(function()
+	for character, s in pairs(state) do
+		if not character or not character:IsA("Model") or not character:FindFirstChild("Humanoid") then
+			removeState(character)
+		else
+			-- clean orphaned part highlights
+			for part, h in pairs(s.parts) do
+				if not part.Parent then
+					if h then pcall(function() h:Destroy() end) end
+					s.parts[part] = nil
+				end
 			end
 		end
 	end
 end)
 
--- Cleanup orphaned highlights
-RunService.Heartbeat:Connect(function()
-	for character, highlight in pairs(activeHighlights) do
-		if not character or not character:IsA("Model") or not character:FindFirstChild("Humanoid") then
-			if highlight then
-				pcall(function() highlight:Destroy() end)
+-- ===== Main loop =====
+task.spawn(function()
+	local lastEnabled = false
+	local lastColor = nil
+	local lastOpacity = -1
+	local lastVisibleOnly = nil
+
+	while true do
+		task.wait(0.1)
+
+		local enabled = flag("ESP_Chams", false)
+		local color = flag("ESP_ChamsColor", Color3.fromRGB(255, 255, 255))
+		local opacity = flag("ESP_Opacity", 75)
+		local visibleOnly = flag("ESP_VisibleOnly", false)
+
+		if enabled ~= lastEnabled then
+			if enabled then
+				updateAll(color, opacity, visibleOnly)
+				print("[Chams] Enabled")
+			else
+				clearAll()
+				print("[Chams] Disabled")
 			end
-			activeHighlights[character] = nil
+		elseif enabled then
+			local changed = false
+			if color ~= lastColor then changed = true end
+			if opacity ~= lastOpacity then changed = true end
+			if visibleOnly ~= lastVisibleOnly then changed = true end
+			if changed then
+				updateAll(color, opacity, visibleOnly)
+			end
 		end
+
+		lastEnabled = enabled
+		lastColor = color
+		lastOpacity = opacity
+		lastVisibleOnly = visibleOnly
 	end
 end)
 
