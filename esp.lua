@@ -78,44 +78,45 @@ local function boxRect(projected)
 	return minX, maxX, minY, maxY
 end
 
--- Body-aligned box: spans the character's real head-to-feet extent on screen.
--- No on-screen filtering, so it stays correct even when the player is close.
+-- Body box: top anchored to the head, bottom anchored to the feet, fixed width ratio.
 local function getBodyBoxRect(character)
 	local cam = Workspace.CurrentCamera
 	if not cam then return nil end
+	local head = character:FindFirstChild("Head")
 	local root = character:FindFirstChild("HumanoidRootPart")
 		or character:FindFirstChild("Torso")
-		or character:FindFirstChild("Head")
-	if not root then return nil end
+	if not head or not root then return nil end
 
-	local minY, maxY = math.huge, -math.huge
+	-- Top = top of the head
+	local topWorld = head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.2, 0)
+
+	-- Bottom = lowest point of the character (feet)
+	local minY = root.Position.Y - root.Size.Y / 2
 	for _, part in ipairs(character:GetDescendants()) do
 		if part:IsA("BasePart") then
-			local half = part.Size.Y / 2
-			minY = math.min(minY, part.Position.Y - half)
-			maxY = math.max(maxY, part.Position.Y + half)
+			minY = math.min(minY, part.Position.Y - part.Size.Y / 2)
 		end
 	end
-	if minY == math.huge then return nil end
 
-	local cx, _, cz = root.Position.X, 0, root.Position.Z
-	local top = cam:WorldToScreenPoint(Vector3.new(cx, maxY, cz))
-	local bottom = cam:WorldToScreenPoint(Vector3.new(cx, minY, cz))
+	local top = cam:WorldToScreenPoint(topWorld)
+	local bottom = cam:WorldToScreenPoint(Vector3.new(root.Position.X, minY, root.Position.Z))
 
 	local topY = math.min(top.Y, bottom.Y)
-	local maxY2 = math.max(top.Y, bottom.Y)
-	local height = math.abs(maxY2 - topY)
+	local bottomY = math.max(top.Y, bottom.Y)
+	local height = bottomY - topY
 	if height < 2 then return nil end
-	local width = height * 0.6
+
+	-- Fixed width ratio (0.5x height) so the box never warps
+	local width = height * 0.5
 	local centerX = (top.X + bottom.X) / 2
 	local minX = centerX - width / 2
 	local maxX = centerX + width / 2
 
 	return {
 		minX = minX, maxX = maxX,
-		minY = topY, maxY = maxY2,
+		minY = topY, maxY = bottomY,
 		width = width, height = height,
-		centerX = centerX, topY = topY, bottomY = maxY2,
+		centerX = centerX, topY = topY, bottomY = bottomY,
 	}
 end
 
