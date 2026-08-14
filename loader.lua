@@ -1,6 +1,5 @@
 -- // VisionWare Complete Loader
 -- // Just run this script - it handles EVERYTHING automatically
-
 local Loader = {
 	User = "aGodBridger",            -- GitHub username / owner
 	Repo = "robloxtest",             -- Repo name
@@ -13,15 +12,11 @@ local Loader = {
 	},
 	Silent = false,                  -- true = hide "loaded" messages
 }
-
 local BaseUrl = ("https://raw.githubusercontent.com/%s/%s/%s/"):format(
 	Loader.User, Loader.Repo, Loader.Branch
 )
-
 assert(#Loader.Files > 0, "No files to load!")
-
 local Success, Errors = 0, {}
-
 -- ===== STEP 1: Load GUI and other files from GitHub =====
 for _, FileName in ipairs(Loader.Files) do
 	local ok, Source = pcall(game.HttpGet, game, BaseUrl .. FileName)
@@ -44,7 +39,6 @@ for _, FileName in ipairs(Loader.Files) do
 		table.insert(Errors, FileName .. " failed to fetch (check username/repo/branch): " .. tostring(Source))
 	end
 end
-
 -- ===== STEP 2: Load chams.lua as a server script =====
 local ok, ChamsSource = pcall(game.HttpGet, game, BaseUrl .. "chams.lua")
 if ok and ChamsSource then
@@ -64,9 +58,25 @@ if ok and ChamsSource then
 else
 	table.insert(Errors, "chams.lua failed to fetch: " .. tostring(ChamsSource))
 end
-
-
-
+-- ===== STEP 3: Load esp.lua as a server script =====
+local ok, EspSource = pcall(game.HttpGet, game, BaseUrl .. "esp.lua")
+if ok and EspSource then
+	-- Create a Script instance in ServerScriptService
+	local ServerScriptService = game:GetService("ServerScriptService")
+	if ServerScriptService then
+		local espScript = Instance.new("Script")
+		espScript.Name = "EspScript"
+		espScript.Source = EspSource
+		espScript.Parent = ServerScriptService
+		print("[VisionWare] ESP loaded as server script")
+		Success = Success + 1
+	else
+		warn("[VisionWare] Could not access ServerScriptService")
+		table.insert(Errors, "esp.lua - ServerScriptService not accessible")
+	end
+else
+	table.insert(Errors, "esp.lua failed to fetch: " .. tostring(EspSource))
+end
 -- ===== Final Status =====
 if #Errors > 0 then
 	print("[VisionWare] " .. Success .. " loaded, " .. #Errors .. " failed")
