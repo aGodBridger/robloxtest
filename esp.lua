@@ -78,27 +78,44 @@ local function boxRect(projected)
 	return minX, maxX, minY, maxY
 end
 
--- Depth-scale box: constant stud size, tracks the model CFrame (matches standard box ESPs)
-local function getScaledBoxRect(character)
+-- Body-aligned box: spans the character's real head-to-feet extent on screen.
+-- No on-screen filtering, so it stays correct even when the player is close.
+local function getBodyBoxRect(character)
 	local cam = Workspace.CurrentCamera
 	if not cam then return nil end
-	local cframe = character:GetModelCFrame()
-	if not cframe then return nil end
-	local pos = cam:WorldToViewportPoint(cframe.Position)
-	local depth = pos.Z
-	if depth <= 0 then return nil end
+	local root = character:FindFirstChild("HumanoidRootPart")
+		or character:FindFirstChild("Torso")
+		or character:FindFirstChild("Head")
+	if not root then return nil end
 
-	local scaleFactor = 1 / (depth * math.tan(math.rad(cam.FieldOfView / 2)) * 2) * 1000
-	local bw = 4 * scaleFactor
-	local bh = 5 * scaleFactor
-	local x = pos.X - bw / 2
-	local y = pos.Y - bh / 2
+	local minY, maxY = math.huge, -math.huge
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local half = part.Size.Y / 2
+			minY = math.min(minY, part.Position.Y - half)
+			maxY = math.max(maxY, part.Position.Y + half)
+		end
+	end
+	if minY == math.huge then return nil end
+
+	local cx, _, cz = root.Position.X, 0, root.Position.Z
+	local top = cam:WorldToScreenPoint(Vector3.new(cx, maxY, cz))
+	local bottom = cam:WorldToScreenPoint(Vector3.new(cx, minY, cz))
+
+	local topY = math.min(top.Y, bottom.Y)
+	local maxY2 = math.max(top.Y, bottom.Y)
+	local height = math.abs(maxY2 - topY)
+	if height < 2 then return nil end
+	local width = height * 0.6
+	local centerX = (top.X + bottom.X) / 2
+	local minX = centerX - width / 2
+	local maxX = centerX + width / 2
 
 	return {
-		minX = x, maxX = x + bw,
-		minY = y, maxY = y + bh,
-		width = bw, height = bh,
-		centerX = pos.X, topY = y,
+		minX = minX, maxX = maxX,
+		minY = topY, maxY = maxY2,
+		width = width, height = height,
+		centerX = centerX, topY = topY, bottomY = maxY2,
 	}
 end
 
@@ -199,7 +216,7 @@ local function renderEsp(esp)
 	if not isCharacterVisible(character) then hideAll(esp); return end
 
 	local projected = getProjectedBox(character)
-	local rect = getScaledBoxRect(character)
+	local rect = getBodyBoxRect(character)
 	if not rect then hideAll(esp); return end
 
 	local color = getPlayerColor(player)
@@ -209,6 +226,7 @@ local function renderEsp(esp)
 	local minX, maxX, minY, maxY = rect.minX, rect.maxX, rect.minY, rect.maxY
 	local width, height = rect.width, rect.height
 	local centerX, topY = rect.centerX, rect.topY
+	local bottomY = rect.bottomY
 
 	local boxes = flag("ESP_Boxes", true)
 	local outline = flag("ESP_Outline", true)
@@ -296,12 +314,12 @@ local function renderEsp(esp)
 		if esp.healthfg then esp.healthfg.Visible = false end
 	end
 
-	-- ===== Names =====
+	-- ===== Names (below the player) =====
 	if flag("ESP_Names", true) then
 		esp.name.Visible = true
 		esp.name.Text = player.Name
 		esp.name.Color = color
-		esp.name.Position = Vector2.new(centerX, topY - 18)
+		esp.name.Position = Vector2.new(centerX, bottomY + 4)
 		esp.name.Size = 14
 		esp.name.Center = true
 		esp.name.Outline = true
@@ -311,13 +329,13 @@ local function renderEsp(esp)
 		if esp.name then esp.name.Visible = false end
 	end
 
-	-- ===== Distance =====
+	-- ===== Distance (above the box) =====
 	if flag("ESP_Distance", false) and hrp then
 		local dist = math.round((Workspace.CurrentCamera.CFrame.Position - hrp.Position).Magnitude)
 		esp.distance.Visible = true
 		esp.distance.Text = tostring(dist) .. " studs"
 		esp.distance.Color = Color3.fromRGB(255, 255, 255)
-		esp.distance.Position = Vector2.new(centerX, topY + height + 4)
+		esp.distance.Position = Vector2.new(centerX, topY - 18)
 		esp.distance.Size = 13
 		esp.distance.Center = true
 		esp.distance.Outline = true
