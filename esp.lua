@@ -78,37 +78,27 @@ local function boxRect(projected)
 	return minX, maxX, minY, maxY
 end
 
--- Compute world-space vertical extent of the character (top of head to feet)
-local function getBodyScreenRect(character)
-	local root = character:FindFirstChild("HumanoidRootPart")
-		or character:FindFirstChild("Torso")
-	if not root then return nil end
+-- Depth-scale box: constant stud size, tracks the model CFrame (matches standard box ESPs)
+local function getScaledBoxRect(character)
+	local cam = Workspace.CurrentCamera
+	if not cam then return nil end
+	local cframe = character:GetModelCFrame()
+	if not cframe then return nil end
+	local pos = cam:WorldToViewportPoint(cframe.Position)
+	local depth = pos.Z
+	if depth <= 0 then return nil end
 
-	local minY, maxY = math.huge, -math.huge
-	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") then
-			local half = part.Size.Y / 2
-			minY = math.min(minY, part.Position.Y - half)
-			maxY = math.max(maxY, part.Position.Y + half)
-		end
-	end
-	if minY == math.huge then return nil end
-
-	local cx, _, cz = root.Position.X, 0, root.Position.Z
-	local top = worldToScreen(Vector3.new(cx, maxY, cz))
-	local bottom = worldToScreen(Vector3.new(cx, minY, cz))
-	if not top or not bottom then return nil end
-
-	local height = math.abs(bottom.Y - top.Y)
-	if height < 2 then return nil end
-	local width = height * 0.6
-	local centerX = (top.X + bottom.X) / 2
+	local scaleFactor = 1 / (depth * math.tan(math.rad(cam.FieldOfView / 2)) * 2) * 1000
+	local bw = 4 * scaleFactor
+	local bh = 5 * scaleFactor
+	local x = pos.X - bw / 2
+	local y = pos.Y - bh / 2
 
 	return {
-		minX = centerX - width / 2,
-		maxX = centerX + width / 2,
-		minY = math.min(top.Y, bottom.Y),
-		maxY = math.max(top.Y, bottom.Y),
+		minX = x, maxX = x + bw,
+		minY = y, maxY = y + bh,
+		width = bw, height = bh,
+		centerX = pos.X, topY = y,
 	}
 end
 
@@ -209,29 +199,16 @@ local function renderEsp(esp)
 	if not isCharacterVisible(character) then hideAll(esp); return end
 
 	local projected = getProjectedBox(character)
-	local rect = getBodyScreenRect(character)
-	if not projected and not rect then hideAll(esp); return end
+	local rect = getScaledBoxRect(character)
+	if not rect then hideAll(esp); return end
 
 	local color = getPlayerColor(player)
 	local alpha = flag("ESP_Opacity", 75) / 100
 	local boxType = flag("ESP_BoxType", "2D Box")
 
-	local minX, maxX, minY, maxY
-	local width, height, centerX, topY
-
-	if rect then
-		minX, maxX, minY, maxY = rect.minX, rect.maxX, rect.minY, rect.maxY
-		width = maxX - minX
-		height = maxY - minY
-		centerX = (minX + maxX) / 2
-		topY = minY
-	else
-		minX, maxX, minY, maxY = boxRect(projected)
-		width = maxX - minX
-		height = maxY - minY
-		centerX = (minX + maxX) / 2
-		topY = minY
-	end
+	local minX, maxX, minY, maxY = rect.minX, rect.maxX, rect.minY, rect.maxY
+	local width, height = rect.width, rect.height
+	local centerX, topY = rect.centerX, rect.topY
 
 	local boxes = flag("ESP_Boxes", true)
 	local outline = flag("ESP_Outline", true)
