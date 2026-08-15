@@ -1,5 +1,5 @@
 -- // VisionWare ESP
--- // Boxes + extras via local Drawing, name via head-anchored BillboardGui (RobotoMono, like the GUI).
+-- // Boxes + extras via the executor Drawing API, names via head-anchored BillboardGui.
 -- // All features are driven by gui.lua's ESP page flags.
 
 local Players = game:GetService("Players")
@@ -19,19 +19,24 @@ local function flag(name, default)
 	return v
 end
 
-local newDrawing = function(kind)
-	local ok, d = pcall(function()
-		if not Drawing then return nil end
-		return Drawing.new(kind)
-	end)
+local function newDrawing(kind)
+	if not Drawing then return nil end
+	local ok, d = pcall(Drawing.new, kind)
 	if ok and d then return d end
 	return nil
+end
+
+-- GUI "Opacity" (0-100) means visibility, but Drawing transparency is 1 = invisible.
+-- Convert so the slider does what it says.
+local function toTransparency(opacity)
+	return 1 - (math.clamp(opacity, 0, 100) / 100)
 end
 
 local function worldToScreen(position)
 	local cam = Workspace.CurrentCamera
 	if not cam or not cam.CFrame then return nil end
 	local screenPoint = cam:WorldToScreenPoint(position)
+	if screenPoint.Z < 0 then return nil end -- behind camera
 	return Vector2.new(screenPoint.X, screenPoint.Y)
 end
 
@@ -121,6 +126,7 @@ local function createEspForPlayer(player)
 		boxFill = newDrawing("Square"),
 		boxFilled = newDrawing("Square"),
 		boxLines = {},
+		boxOutlines = {},
 		healthbg = newDrawing("Square"),
 		healthfg = newDrawing("Square"),
 		distance = newDrawing("Text"),
@@ -131,14 +137,22 @@ local function createEspForPlayer(player)
 		nameLabel = nil,
 		nameCon = nil,
 	}
-	for i = 1, 12 do esp.boxLines[i] = newDrawing("Line") end
+	-- 12 color lines + 12 matching black outline lines
+	for i = 1, 12 do
+		esp.boxLines[i] = newDrawing("Line")
+		esp.boxOutlines[i] = newDrawing("Line")
+	end
 	for i = 1, 19 do esp.skeleton[i] = newDrawing("Line") end
+	esp.hasDrawing = esp.boxOutline ~= nil
 	EspObjects[player] = esp
 	return esp
 end
 
 local function hideAll(esp)
-	for i = 1, 12 do if esp.boxLines[i] then esp.boxLines[i].Visible = false end end
+	for i = 1, 12 do
+		if esp.boxLines[i] then esp.boxLines[i].Visible = false end
+		if esp.boxOutlines[i] then esp.boxOutlines[i].Visible = false end
+	end
 	if esp.boxOutline then esp.boxOutline.Visible = false end
 	if esp.boxFill then esp.boxFill.Visible = false end
 	if esp.boxFilled then esp.boxFilled.Visible = false end
@@ -158,6 +172,17 @@ local function setLine(line, a, b, color, alpha, thickness)
 	line.Color = color
 	line.Thickness = thickness or 1
 	line.Transparency = alpha
+end
+
+local function setBox(box, pos, size, color, filled, thickness, alpha)
+	if not box then return end
+	box.Visible = true
+	box.Position = pos
+	box.Size = size
+	box.Color = color
+	box.Filled = filled
+	box.Thickness = filled and 1 or (thickness or 1)
+	box.Transparency = alpha
 end
 
 local function updateNameBillboard(esp)
@@ -229,6 +254,12 @@ local function renderEsp(esp)
 	local cam = Workspace.CurrentCamera
 	if not cam then return end
 
+	-- Names-only mode: this executor has no Drawing API.
+	if not esp.hasDrawing then
+		updateNameBillboard(esp)
+		return
+	end
+
 	local hrp = character:FindFirstChild("HumanoidRootPart")
 	if hrp then
 		local range = flag("ESP_Range", 500)
@@ -246,7 +277,7 @@ local function renderEsp(esp)
 	if not rect then hideAll(esp); return end
 
 	local color = getPlayerColor(player)
-	local alpha = flag("ESP_Opacity", 75) / 100
+	local alpha = toTransparency(flag("ESP_Opacity", 75))
 	local boxType = flag("ESP_BoxType", "2D Box")
 	local boxes = flag("ESP_Boxes", true)
 	local outline = flag("ESP_Outline", true)
@@ -258,7 +289,10 @@ local function renderEsp(esp)
 	local width, height = rect.width, rect.height
 
 	-- ===== Box =====
-	for i = 1, 12 do if esp.boxLines[i] then esp.boxLines[i].Visible = false end end
+	for i = 1, 12 do
+		if esp.boxLines[i] then esp.boxLines[i].Visible = false end
+		if esp.boxOutlines[i] then esp.boxOutlines[i].Visible = false end
+	end
 	if esp.boxOutline then esp.boxOutline.Visible = false end
 	if esp.boxFill then esp.boxFill.Visible = false end
 	if esp.boxFilled then esp.boxFilled.Visible = false end
@@ -274,8 +308,8 @@ local function renderEsp(esp)
 			for e, edge in ipairs(BOX3D_EDGES) do
 				local a, b = projected[edge[1]], projected[edge[2]]
 				if a and b then
-					if outline and esp.boxLines[e + 1] then
-						setLine(esp.boxLines[e + 1], a, b, Color3.new(0, 0, 0), 1, 3)
+					if outline then
+						setLine(esp.boxOutlines[e], a, b, Color3.new(0, 0, 0), alpha, 3)
 					end
 					setLine(esp.boxLines[e], a, b, color, alpha, 1)
 				end
@@ -291,52 +325,27 @@ local function renderEsp(esp)
 			for i, c in ipairs(corners) do
 				local a = Vector2.new(c[1], c[2])
 				local b = Vector2.new(c[3], c[4])
-				if outline and esp.boxLines[i + 1] then
-					setLine(esp.boxLines[i + 1], a, b, Color3.new(0, 0, 0), 1, 3)
+				if outline then
+					setLine(esp.boxOutlines[i], a, b, Color3.new(0, 0, 0), alpha, 3)
 				end
 				setLine(esp.boxLines[i], a, b, color, alpha, 1)
 			end
 		else
 			if boxType == "Filled Box" then
-				esp.boxFilled.Visible = true
-				esp.boxFilled.Position = Vector2.new(minX, topY)
-				esp.boxFilled.Size = Vector2.new(width, height)
-				esp.boxFilled.Color = color
-				esp.boxFilled.Filled = true
-				esp.boxFilled.Transparency = alpha * 0.85
+				setBox(esp.boxFilled, Vector2.new(minX, topY), Vector2.new(width, height), color, true, 1, alpha * 0.85)
 			end
-			esp.boxOutline.Visible = outline
-			esp.boxOutline.Position = Vector2.new(minX - 1, topY - 1)
-			esp.boxOutline.Size = Vector2.new(width + 2, height + 2)
-			esp.boxOutline.Color = Color3.new(0, 0, 0)
-			esp.boxOutline.Thickness = 1
-			esp.boxOutline.Filled = false
-			esp.boxOutline.Transparency = 1
-			esp.boxFill.Visible = true
-			esp.boxFill.Position = Vector2.new(minX, topY)
-			esp.boxFill.Size = Vector2.new(width, height)
-			esp.boxFill.Color = color
-			esp.boxFill.Thickness = 1
-			esp.boxFill.Filled = false
-			esp.boxFill.Transparency = alpha
+			if outline then
+				setBox(esp.boxOutline, Vector2.new(minX - 1, topY - 1), Vector2.new(width + 2, height + 2), Color3.new(0, 0, 0), false, 3, alpha)
+			end
+			setBox(esp.boxFill, Vector2.new(minX, topY), Vector2.new(width, height), color, false, 1, alpha)
 		end
 	end
 
 	-- ===== Health bar =====
 	if flag("ESP_Health", true) then
 		local ratio = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-		esp.healthbg.Visible = true
-		esp.healthbg.Position = Vector2.new(minX - 5, topY)
-		esp.healthbg.Size = Vector2.new(3, height)
-		esp.healthbg.Color = Color3.new(0, 0, 0)
-		esp.healthbg.Filled = true
-		esp.healthbg.Transparency = 1
-		esp.healthfg.Visible = true
-		esp.healthfg.Position = Vector2.new(minX - 5, topY + height * (1 - ratio))
-		esp.healthfg.Size = Vector2.new(3, height * ratio)
-		esp.healthfg.Color = flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0))
-		esp.healthfg.Filled = true
-		esp.healthfg.Transparency = 1
+		setBox(esp.healthbg, Vector2.new(minX - 5, topY), Vector2.new(3, height), Color3.new(0, 0, 0), true, 1, 0)
+		setBox(esp.healthfg, Vector2.new(minX - 5, topY + height * (1 - ratio)), Vector2.new(3, height * ratio), flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0)), true, 1, 0)
 	else
 		if esp.healthbg then esp.healthbg.Visible = false end
 		if esp.healthfg then esp.healthfg.Visible = false end
@@ -364,7 +373,7 @@ local function renderEsp(esp)
 		local target
 		if flag("ESP_TracerType", "From Bottom") == "From Bottom" then
 			local m = UserInputService:GetMouseLocation()
-			target = Vector2.new(m.X, 1080)
+			target = Vector2.new(m.X, cam.ViewportSize.Y)
 		else
 			target = UserInputService:GetMouseLocation()
 		end
@@ -421,6 +430,7 @@ Players.PlayerRemoving:Connect(function(player)
 	local esp = EspObjects[player]
 	if esp then
 		for _, l in ipairs(esp.boxLines) do if l then pcall(function() l:Remove() end) end end
+		for _, l in ipairs(esp.boxOutlines) do if l then pcall(function() l:Remove() end) end end
 		for _, l in ipairs(esp.skeleton) do if l then pcall(function() l:Remove() end) end end
 		for _, k in ipairs({ "boxOutline", "boxFill", "boxFilled", "healthbg", "healthfg", "distance", "tracer", "head" }) do
 			if esp[k] then pcall(function() esp[k]:Remove() end) end
@@ -431,7 +441,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 RunService.RenderStepped:Connect(function()
-	if not flag("ESP_Enabled", true) then
+	if flag("Misc_Panic", false) or not flag("ESP_Enabled", true) then
 		for _, esp in pairs(EspObjects) do
 			hideAll(esp)
 			if esp.nameGui then esp.nameGui.Enabled = false end
