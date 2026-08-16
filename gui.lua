@@ -58,7 +58,8 @@ do
 			[Enum.KeyCode.Plus] = "+",
 			[Enum.KeyCode.Period] = ".",
 			[Enum.KeyCode.Backquote] = "`",
-			[Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch ] = "MB1",
+			[Enum.UserInputType.MouseButton1] = "MB1",
+			[Enum.UserInputType.Touch] = "MB1",
 			[Enum.UserInputType.MouseButton2] = "MB2",
 			[Enum.UserInputType.MouseButton3] = "MB3"
 		};
@@ -274,7 +275,7 @@ do
 				end;
 			end)
 			Library:Connection(game:GetService("UserInputService").InputEnded, function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch  then
 					dragging = false
 				end
 			end)
@@ -482,35 +483,35 @@ do
 			set(default, defaultalpha)
 
 			Sat.InputBegan:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch  then
 					slidingsaturation = true
 					update()
 				end
 			end)
 
 			Sat.InputEnded:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch  then
 					slidingsaturation = false
 					update()
 				end
 			end)
 
 			Hue.InputBegan:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch  then
 					slidinghue = true
 					update()
 				end
 			end)
 
 			Hue.InputEnded:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch  then
 					slidinghue = false
 					update()
 				end
 			end)
 
 			Library:Connection(game:GetService("UserInputService").InputChanged, function(input)
-				if input.UserInputType == Enum.UserInputType.MouseMovement or Enum.UserInputType.Touch  then
+				if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch  then
 					if slidinghue then
 						update()
 					end
@@ -528,7 +529,7 @@ do
 			end
 
 			Library:Connection(game:GetService("UserInputService").InputBegan, function(Input)
-				if ColorWindow.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if ColorWindow.Visible and (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) then
 					if not Library:IsMouseOverFrame(ColorWindow) and not Library:IsMouseOverFrame(Icon) and not Library:IsMouseOverFrame(parent) then
 						ColorWindow.Visible = false
 						parent.ZIndex = 1
@@ -910,7 +911,7 @@ do
 				Window.Dragging[2] = UDim2.new(0, Location.X - AccentOutline.AbsolutePosition.X, 0, Location.Y - AccentOutline.AbsolutePosition.Y)
 			end)
 			Library:Connection(game:GetService("UserInputService").InputEnded, function(Input)
-				if Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  and Window.Dragging[1] then
+				if (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) and Window.Dragging[1] then
 					local Location = game:GetService("UserInputService"):GetMouseLocation()
 					Window.Dragging[1] = false
 					Window.Dragging[2] = UDim2.new(0, 0, 0, 0)
@@ -1901,7 +1902,7 @@ do
 				end)
 				--
 				Library:Connection(game:GetService("UserInputService").InputBegan, function(Input)
-					if ModeBox.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+					if ModeBox.Visible and (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) then
 						if not Library:IsMouseOverFrame(ModeBox) then
 							ModeBox.Visible = false
 							NewToggle.ZIndex = 1
@@ -2353,7 +2354,7 @@ do
 				end
 			end)
 			Library:Connection(game:GetService("UserInputService").InputBegan, function(Input)
-				if ContentOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if ContentOutline.Visible and (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) then
 					if not Library:IsMouseOverFrame(ContentOutline) and not Library:IsMouseOverFrame(Inline) then
 						ContentOutline.Visible = false
 						NewList.ZIndex = 1
@@ -3306,7 +3307,7 @@ do
 			end)
 			--
 			Library:Connection(game:GetService("UserInputService").InputBegan, function(Input)
-				if ModeBox.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  then
+				if ModeBox.Visible and (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) then
 					if not Library:IsMouseOverFrame(ModeBox) then
 						ModeBox.Visible = false
 						NewBind.ZIndex = 1
@@ -4225,7 +4226,7 @@ do
 				Indicator.Dragging[2] = UDim2.new(0, Location.X - Outline.AbsolutePosition.X, 0, Location.Y - Outline.AbsolutePosition.Y)
 			end)
 			Library:Connection(game:GetService("UserInputService").InputEnded, function(Input)
-				if Input.UserInputType == Enum.UserInputType.MouseButton1 or Enum.UserInputType.Touch  and Indicator.Dragging[1] then
+				if (Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch) and Indicator.Dragging[1] then
 					local Location = game:GetService("UserInputService"):GetMouseLocation()
 					Indicator.Dragging[1] = false
 					Indicator.Dragging[2] = UDim2.new(0, 0, 0, 0)
@@ -4486,6 +4487,7 @@ Trigger:Slider({Name = "Prediction Amount", Flag = "SilentAim_PredAmount", Min =
 Trigger:Divider({Name = "Triggerbot"})
 Trigger:Toggle({Name = "Enable Triggerbot", Flag = "Triggerbot_Enabled"})
 Trigger:Keybind({Name = "Trigger Key", Flag = "Triggerbot_Key", Mode = "Hold"})
+Trigger:Toggle({Name = "Team Check", Flag = "Triggerbot_TeamCheck"})
 Trigger:Slider({Name = "Fire Rate", Flag = "Triggerbot_FireRate", Min = 1, Max = 20, Default = 10, Decimals = 1})
 Trigger:Divider({Name = "Weapon"})
 Trigger:Toggle({Name = "No Recoil", Flag = "Weapons_NoRecoil"})

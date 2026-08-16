@@ -11,6 +11,7 @@ local Loader = {
 		"silentaim.lua",
 		"esp.lua",
 		"chams.lua",
+		"features.lua",
 		-- add more files below, e.g. "combat.lua",
 	},
 	Silent = false,                  -- true = hide "loaded" messages
