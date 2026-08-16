@@ -88,13 +88,12 @@ local function GetColor(player, isEnemy)
 end
 
 -- Resolve a player's ESP data. In Phantom Forces we read the game's
--- replicated character (PF hides Humanoids/teams from the normal API).
--- Returns character, rootPart, humanoid (or proxy), isEnemy.
+-- replicated character (PF hides Humanoids/teams from the normal API) or
+-- fall back to PF's custom models under workspace.Players.
+-- Returns a view: { Character, Root, Head, Hash, Health, MaxHealth, Enemy }.
 local function ResolvePlayer(player)
-	if Pf and Pf.Active then
-		local view = Pf.Resolve(player)
-		if not view then return nil end
-		return view.Character, view.Root, { Health = view.Health, MaxHealth = view.MaxHealth }, view.Enemy
+	if Pf and (Pf.Active or Pf.TemplateMode) then
+		return Pf.Resolve(player)
 	end
 	local character = player.Character
 	if not character then return nil end
@@ -105,7 +104,14 @@ local function ResolvePlayer(player)
 	if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
 		isEnemy = false
 	end
-	return character, rootPart, humanoid, isEnemy
+	return {
+		Character = character,
+		Root = rootPart,
+		Head = character:FindFirstChild("Head"),
+		Health = humanoid.Health,
+		MaxHealth = humanoid.MaxHealth,
+		Enemy = isEnemy,
+	}
 end
 
 local function isVisible(origin, target, character)
@@ -328,8 +334,13 @@ local function drawHeadDot(dotPool, center, radius, color)
 end
 
 local function updatePlayer(player, esp, camera)
-	local character, rootPart, humanoid, isEnemy = ResolvePlayer(player)
-	if not (character and rootPart and humanoid) then hidePlayer(esp) return end
+	local view = ResolvePlayer(player)
+	if not view then hidePlayer(esp) return end
+	local character = view.Character
+	local rootPart = view.Root
+	local humanoid = view
+	local isEnemy = view.Enemy
+	if not rootPart then hidePlayer(esp) return end
 	if humanoid.Health <= 0 then hidePlayer(esp) return end
 
 	local screen, onScreen = camera:WorldToViewportPoint(rootPart.Position)
@@ -351,7 +362,7 @@ local function updatePlayer(player, esp, camera)
 	end
 
 	local color = GetColor(player, isEnemy)
-	local size = character:GetExtentsSize()
+	local size = character and character:GetExtentsSize() or view.Size or Vector3_new(4, 5.5, 2)
 	local cf = rootPart.CFrame
 
 	local rainbow = C.Rainbow
@@ -562,7 +573,7 @@ local function updatePlayer(player, esp, camera)
 
 	if esp.Head then
 		if C.HeadDot then
-			local headPart = character:FindFirstChild("Head")
+			local headPart = character and character:FindFirstChild("Head") or view.Head
 			local headPos = headPart and headPart.Position or headWorld.Position
 			local headScreenPos = camera:WorldToViewportPoint(headPos)
 			local dotRadius = MathClamp(screenHeight * 0.055, 2, 10)
@@ -575,8 +586,15 @@ local function updatePlayer(player, esp, camera)
 	if C.Skeleton then
 		local bones = {}
 		local function get(part, fallback)
-			local found = character:FindFirstChild(part)
-			if not found and fallback then found = character:FindFirstChild(fallback) end
+			local found = character and character:FindFirstChild(part)
+			if not found and fallback then found = character and character:FindFirstChild(fallback) end
+			if not found and view and view.Hash then
+				found = view.Hash[part] or view.Hash[fallback]
+				if found then
+					local ok, isBase = pcall(found.IsA, found, "BasePart")
+					if not (ok and isBase) then found = nil end
+				end
+			end
 			return found
 		end
 
@@ -738,8 +756,13 @@ local function positionUILine(frame, from, to, thickness, color)
 end
 
 local function updatePlayerUI(player, fb, camera)
-	local character, rootPart, humanoid, isEnemy = ResolvePlayer(player)
-	if not (character and rootPart and humanoid) then hideUIPlayer(fb) return end
+	local view = ResolvePlayer(player)
+	if not view then hideUIPlayer(fb) return end
+	local character = view.Character
+	local rootPart = view.Root
+	local humanoid = view
+	local isEnemy = view.Enemy
+	if not rootPart then hideUIPlayer(fb) return end
 	if humanoid.Health <= 0 then hideUIPlayer(fb) return end
 
 	local screen, onScreen = camera:WorldToViewportPoint(rootPart.Position)
@@ -761,7 +784,7 @@ local function updatePlayerUI(player, fb, camera)
 	end
 
 	local color = GetColor(player, isEnemy)
-	local size = character:GetExtentsSize()
+	local size = character and character:GetExtentsSize() or view.Size or Vector3_new(4, 5.5, 2)
 	local cf = rootPart.CFrame
 
 	local rainbow = C.Rainbow

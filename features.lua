@@ -152,7 +152,7 @@ local function isEnemyHit(result)
 
 	-- Phantom Forces: replicated characters have no Humanoid/team we can
 	-- read, so ask the PF interface for the crosshair-nearest enemy instead.
-	if Pf and Pf.Active then
+	if Pf and (Pf.Active or Pf.TemplateMode) then
 		local camera = Workspace.CurrentCamera
 		if not camera then return false end
 		local target = Pf.PickTarget(camera, "Head", true, 5, false, flag("Triggerbot_TeamCheck", false))

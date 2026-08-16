@@ -288,7 +288,7 @@ local function doPfAim(dt)
 end
 
 RunService.RenderStepped:Connect(function(dt)
-	if Pf and Pf.Active then
+	if Pf and (Pf.Active or Pf.TemplateMode) then
 		doPfAim(dt)
 	else
 		doAim()
