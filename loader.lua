@@ -7,6 +7,7 @@ local Loader = {
 	Branch = "main",                 -- Branch (main or master)
 	Files = {
 		"gui.lua",                   -- always first: creates the Library every other script reads
+		"aimbot.lua",
 		"esp.lua",
 		"chams.lua",
 		-- add more files below, e.g. "combat.lua",

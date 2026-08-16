@@ -141,9 +141,9 @@ end
 local function GetColor(player)
 	local L = getLibrary()
 	if L then
-		if table.find(L.Priorities, player) then
+		if L.Priorities and table.find(L.Priorities, player) then
 			return Color3.fromRGB(255, 210, 0)
-		elseif table.find(L.Friends, player) then
+		elseif L.Friends and table.find(L.Friends, player) then
 			return Color3.fromRGB(0, 255, 0)
 		elseif player.Team == LocalPlayer.Team then
 			return flag("ESP_TeamColor", Color3.fromRGB(86, 227, 120))
@@ -191,7 +191,7 @@ local function updatePlayer(player, esp, camera)
 	local headScreen = camera:WorldToViewportPoint(headWorld.Position)
 	local feetScreen = camera:WorldToViewportPoint(feetWorld.Position)
 
-	if not headScreen.Z > 0 or not feetScreen.Z > 0 then hidePlayer(esp) return end
+	if headScreen.Z < 0 or feetScreen.Z < 0 then hidePlayer(esp) return end
 
 	local screenHeight = feetScreen.Y - headScreen.Y
 	local boxWidth = screenHeight * 0.65
