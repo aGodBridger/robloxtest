@@ -21,12 +21,30 @@ local BaseUrl = ("https://raw.githubusercontent.com/%s/%s/%s/"):format(
 assert(#Loader.Files > 0, "[VisionWare] Loader.Files is empty!")
 
 local function HttpGet(url)
-	local ok, result = pcall(game.HttpGet, game, url)
+	local ok, result = pcall(function()
+		if syn and syn.request then
+			local r = syn.request({ Url = url, Method = "GET" })
+			return r and r.Body or nil
+		elseif http_request then
+			local r = http_request({ Url = url, Method = "GET" })
+			return r and r.Body or nil
+		elseif request then
+			local r = request({ Url = url, Method = "GET" })
+			return r and r.Body or nil
+		elseif game.HttpGet then
+			return game:HttpGet(url)
+		else
+			local HttpService = game:GetService("HttpService")
+			return HttpService:HttpGetAsync(url)
+		end
+	end)
 	return ok and result or nil
 end
 
+local LoadChunk = loadstring or load
+
 local function RunScript(name, source)
-	local ok, compiled = pcall(loadstring, source)
+	local ok, compiled = pcall(LoadChunk, source)
 	if not ok or not compiled then
 		return nil, "failed to compile: " .. tostring(compiled)
 	end

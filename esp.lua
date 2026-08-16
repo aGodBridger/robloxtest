@@ -15,12 +15,50 @@ local function flag(name, default)
 	return v
 end
 
-if not Drawing then
-	warn("[VisionWare] Drawing API not available, ESP disabled.")
-	return
+local function GetColor(player)
+	local L = getLibrary()
+	if L then
+		if L.Priorities and table.find(L.Priorities, player) then
+			return Color3.fromRGB(255, 210, 0)
+		elseif L.Friends and table.find(L.Friends, player) then
+			return Color3.fromRGB(0, 255, 0)
+		elseif player.Team == LocalPlayer.Team then
+			return flag("ESP_TeamColor", Color3.fromRGB(86, 227, 120))
+		end
+	end
+	return flag("ESP_EnemyColor", Color3.fromRGB(255, 25, 25))
 end
 
+local function isVisible(origin, target, character)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = { character, LocalPlayer and LocalPlayer.Character }
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+	params.IgnoreWater = true
+	local result = Workspace:Raycast(origin, target - origin, params)
+	if not result then return true end
+	if result.Instance and result.Instance:IsDescendantOf(character) then return true end
+	return false
+end
+
+local function TracerOrigin(camera)
+	if flag("ESP_TracerType", "From Bottom") == "From Mouse" then
+		return UserInputService:GetMouseLocation()
+	end
+	return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+end
+
+local haveDrawing = type(Drawing) == "table" and type(Drawing.new) == "function"
+if haveDrawing then
+	local ok, d = pcall(Drawing.new, "Line")
+	if not ok or not d then haveDrawing = false end
+end
+
+-- ================= DRAWING BACKEND =================
+
+local Drawings = {}
+
 local function safeDrawing(kind)
+	if not haveDrawing then return nil end
 	local ok, d = pcall(Drawing.new, kind)
 	return ok and d or nil
 end
@@ -63,8 +101,6 @@ local function newSquare(filled)
 	end
 	return square
 end
-
-local Drawings = {}
 
 local function CreateESP(player)
 	if player == LocalPlayer or Drawings[player] then return end
@@ -127,38 +163,6 @@ local function drawSegment(pool, index, from, to, color, thickness, outline)
 	end
 end
 
-local function isVisible(origin, target, character)
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { character, LocalPlayer and LocalPlayer.Character }
-	params.FilterType = Enum.RaycastFilterType.Blacklist
-	params.IgnoreWater = true
-	local result = Workspace:Raycast(origin, target - origin, params)
-	if not result then return true end
-	if result.Instance and result.Instance:IsDescendantOf(character) then return true end
-	return false
-end
-
-local function GetColor(player)
-	local L = getLibrary()
-	if L then
-		if L.Priorities and table.find(L.Priorities, player) then
-			return Color3.fromRGB(255, 210, 0)
-		elseif L.Friends and table.find(L.Friends, player) then
-			return Color3.fromRGB(0, 255, 0)
-		elseif player.Team == LocalPlayer.Team then
-			return flag("ESP_TeamColor", Color3.fromRGB(86, 227, 120))
-		end
-	end
-	return flag("ESP_EnemyColor", Color3.fromRGB(255, 25, 25))
-end
-
-local function GetTracerOrigin()
-	if flag("ESP_TracerType", "From Bottom") == "From Mouse" then
-		return UserInputService:GetMouseLocation()
-	end
-	return Vector2.new(Workspace.CurrentCamera.ViewportSize.X / 2, Workspace.CurrentCamera.ViewportSize.Y)
-end
-
 local function updatePlayer(player, esp, camera)
 	local character = player.Character
 	if not character then hidePlayer(esp) return end
@@ -173,13 +177,13 @@ local function updatePlayer(player, esp, camera)
 	if not onScreen then hidePlayer(esp) return end
 
 	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
-	local maxDist = flag("ESP_Range", 500)
-	if distance > maxDist then hidePlayer(esp) return end
+	if distance > flag("ESP_Range", 500) then hidePlayer(esp) return end
 
 	if flag("ESP_VisibleOnly", false) then
-		local origin = camera.CFrame.Position
-		local target = rootPart.Position + Vector3.new(0, 2, 0)
-		if not isVisible(origin, target, character) then hidePlayer(esp) return end
+		if not isVisible(camera.CFrame.Position, rootPart.Position + Vector3.new(0, 2, 0), character) then
+			hidePlayer(esp)
+			return
+		end
 	end
 
 	local color = GetColor(player)
@@ -267,17 +271,17 @@ local function updatePlayer(player, esp, camera)
 		}
 
 		local proj = {}
+		local allInFront = true
 		for i, corner in ipairs(corners) do
 			local p, ok = camera:WorldToViewportPoint((cf * CFrame.new(corner)).Position)
 			if not ok or p.Z < 0 then
-				for j = 1, #esp.BoxPool do
-					if esp.BoxPool[j] then esp.BoxPool[j].Visible = false end
-				end
-				hidePlayer(esp)
-				return
+				allInFront = false
+				break
 			end
 			proj[i] = Vector2.new(p.X, p.Y)
 		end
+
+		if not allInFront then hidePlayer(esp) return end
 
 		local segs = {
 			{ proj[1], proj[2] }, { proj[2], proj[3] }, { proj[3], proj[4] }, { proj[4], proj[1] },
@@ -293,7 +297,7 @@ local function updatePlayer(player, esp, camera)
 
 	if esp.Tracer then
 		if flag("ESP_Tracers", true) then
-			esp.Tracer.From = GetTracerOrigin()
+			esp.Tracer.From = TracerOrigin(camera)
 			esp.Tracer.To = Vector2.new(screen.X, screen.Y)
 			esp.Tracer.Color = flag("ESP_TracerColor", color)
 			esp.Tracer.Thickness = 1
@@ -440,11 +444,273 @@ local function updatePlayer(player, esp, camera)
 	end
 end
 
-Players.PlayerRemoving:Connect(RemoveESP)
-Players.PlayerAdded:Connect(CreateESP)
+-- ================= UI BACKEND =================
+
+local ESPUI = nil
+local GuiInset = Vector2.new(0, 0)
+local UIPlayers = {}
+
+local function SetupUI()
+	ESPUI = Instance.new("ScreenGui")
+	ESPUI.Name = "VisionWareESP"
+	ESPUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	local ok = pcall(function() ESPUI.Parent = game:GetService("CoreGui") end)
+	if not ok or not ESPUI.Parent then
+		pcall(function() ESPUI.Parent = LocalPlayer:WaitForChild("PlayerGui", 5) end)
+	end
+	if not ESPUI.Parent then
+		pcall(function() ESPUI.Parent = game:GetService("CoreGui") end)
+	end
+	GuiInset = game:GetService("GuiService"):GetGuiInset()
+end
+
+local function newUIFrame(parent)
+	local f = Instance.new("Frame", parent)
+	f.BackgroundColor3 = Color3.new(1, 1, 1)
+	f.BackgroundTransparency = 1
+	f.BorderSizePixel = 0
+	f.BorderColor3 = Color3.new(0, 0, 0)
+	f.ZIndex = 50
+	return f
+end
+
+local function newUIText(parent)
+	local t = Instance.new("TextLabel", parent)
+	t.Font = Enum.Font.RobotoMono
+	t.BackgroundTransparency = 1
+	t.BorderSizePixel = 0
+	t.TextColor3 = Color3.new(1, 1, 1)
+	t.TextSize = 13
+	t.TextStrokeTransparency = 0
+	t.ZIndex = 51
+	return t
+end
+
+local function CreateUIFallback(player)
+	if player == LocalPlayer or UIPlayers[player] then return end
+	if not ESPUI then SetupUI() end
+	local root = newUIFrame(ESPUI)
+	local fb = {
+		Root = root,
+		Box = newUIFrame(root),
+		Fill = newUIFrame(root),
+		Corners = {},
+		Tracer = newUIFrame(root),
+		Head = newUIFrame(root),
+		Name = newUIText(root),
+		Distance = newUIText(root),
+		HealthBack = newUIFrame(root),
+		HealthFill = newUIFrame(root),
+	}
+	fb.Box.BorderSizePixel = 1
+	fb.HealthBack.BorderSizePixel = 1
+	for i = 1, 8 do
+		fb.Corners[i] = newUIFrame(root)
+	end
+	UIPlayers[player] = fb
+end
+
+local function RemoveUIFallback(player)
+	local fb = UIPlayers[player]
+	if fb then
+		fb.Root:Destroy()
+		UIPlayers[player] = nil
+	end
+end
+
+local function hideUIPlayer(fb)
+	for _, child in ipairs(fb.Root:GetChildren()) do
+		child.Visible = false
+	end
+end
+
+local function positionUILine(frame, from, to, thickness, color)
+	local dx, dy = to.X - from.X, to.Y - from.Y
+	local len = math.sqrt(dx * dx + dy * dy)
+	frame.AnchorPoint = Vector2.new(0, 0.5)
+	frame.Position = UDim2.fromOffset(from.X + GuiInset.X, from.Y + GuiInset.Y)
+	frame.Size = UDim2.fromOffset(len, thickness)
+	frame.Rotation = math.deg(math.atan2(dy, dx))
+	frame.BackgroundColor3 = color
+	frame.BackgroundTransparency = 0
+end
+
+local function updatePlayerUI(player, fb, camera)
+	local character = player.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	if not character or not rootPart or not humanoid or humanoid.Health <= 0 then
+		hideUIPlayer(fb)
+		return
+	end
+
+	local screen, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+	if not onScreen then hideUIPlayer(fb) return end
+
+	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
+	if distance > flag("ESP_Range", 500) then hideUIPlayer(fb) return end
+
+	if flag("ESP_VisibleOnly", false) then
+		if not isVisible(camera.CFrame.Position, rootPart.Position + Vector3.new(0, 2, 0), character) then
+			hideUIPlayer(fb)
+			return
+		end
+	end
+
+	local color = GetColor(player)
+	local size = character:GetExtentsSize()
+	local cf = rootPart.CFrame
+
+	local top = camera:WorldToViewportPoint((cf * CFrame.new(0, size.Y / 2, 0)).Position)
+	local bottom = camera:WorldToViewportPoint((cf * CFrame.new(0, -size.Y / 2, 0)).Position)
+	if top.Z < 0 or bottom.Z < 0 then hideUIPlayer(fb) return end
+
+	local height = bottom.Y - top.Y
+	local width = height * 0.65
+	local left = top.X - width / 2
+	local ty = top.Y
+
+	local function P(x, y)
+		return UDim2.fromOffset(x + GuiInset.X, y + GuiInset.Y)
+	end
+
+	local boxOn = flag("ESP_Boxes", true)
+	local boxType = flag("ESP_BoxType", "2D Box")
+	local outline = flag("ESP_Outline", true)
+
+	fb.Box.Visible = false
+	fb.Fill.Visible = false
+	for i = 1, 8 do
+		fb.Corners[i].Visible = false
+	end
+
+	if boxOn and boxType ~= "3D Box" then
+		if boxType == "Filled Box" then
+			fb.Fill.Visible = true
+			fb.Fill.BackgroundColor3 = color
+			fb.Fill.BackgroundTransparency = math.clamp(1 - flag("ESP_Opacity", 75) / 100, 0, 1)
+			fb.Fill.Position = P(left, ty)
+			fb.Fill.Size = UDim2.fromOffset(width, height)
+		end
+
+		if boxType == "Corner Box" then
+			local cs = width * 0.2
+			local segs = {
+				{ left, ty, cs, 1 },
+				{ left + width - cs, ty, cs, 1 },
+				{ left, ty + height - 1, cs, 1 },
+				{ left + width - cs, ty + height - 1, cs, 1 },
+				{ left, ty, 1, cs },
+				{ left + width - 1, ty, 1, cs },
+				{ left, ty + height - cs, 1, cs },
+				{ left + width - 1, ty + height - cs, 1, cs },
+			}
+			for i, s in ipairs(segs) do
+				local seg = fb.Corners[i]
+				seg.Visible = true
+				seg.BackgroundColor3 = color
+				seg.BackgroundTransparency = 0
+				seg.AnchorPoint = Vector2.new(0, 0)
+				seg.Position = P(s[1], s[2])
+				seg.Size = UDim2.fromOffset(s[3], s[4])
+			end
+		else
+			fb.Box.Visible = true
+			fb.Box.BackgroundTransparency = 1
+			fb.Box.BorderColor3 = color
+			fb.Box.BorderSizePixel = outline and 1 or 0
+			fb.Box.Position = P(left, ty)
+			fb.Box.Size = UDim2.fromOffset(width, height)
+		end
+	end
+
+	if flag("ESP_Tracers", true) then
+		positionUILine(fb.Tracer, TracerOrigin(camera), Vector2.new(screen.X, screen.Y), 1, flag("ESP_TracerColor", color))
+		fb.Tracer.Visible = true
+	else
+		fb.Tracer.Visible = false
+	end
+
+	if flag("ESP_Names", true) then
+		fb.Name.Text = player.DisplayName
+		fb.Name.TextColor3 = color
+		fb.Name.AnchorPoint = Vector2.new(0.5, 0.5)
+		fb.Name.Position = P(left + width / 2, ty - 10)
+		fb.Name.Size = UDim2.fromOffset(200, 15)
+		fb.Name.Visible = true
+	else
+		fb.Name.Visible = false
+	end
+
+	if flag("ESP_Distance", false) then
+		fb.Distance.Text = string.format("%.0f studs", distance)
+		fb.Distance.TextColor3 = color
+		fb.Distance.AnchorPoint = Vector2.new(0.5, 0)
+		fb.Distance.Position = P(left + width / 2, ty + height + 4)
+		fb.Distance.Size = UDim2.fromOffset(200, 15)
+		fb.Distance.Visible = true
+	else
+		fb.Distance.Visible = false
+	end
+
+	if flag("ESP_Health", true) then
+		local hp = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+		local bh = height * 0.8
+		local bw = 4
+		local bx = left - bw - 2
+		local by = ty + (height - bh) / 2
+		local hc = flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0))
+
+		fb.HealthBack.Visible = true
+		fb.HealthBack.BackgroundColor3 = Color3.new(0, 0, 0)
+		fb.HealthBack.BackgroundTransparency = 0
+		fb.HealthBack.BorderColor3 = Color3.new(0, 0, 0)
+		fb.HealthBack.Position = P(bx, by)
+		fb.HealthBack.Size = UDim2.fromOffset(bw, bh)
+
+		fb.HealthFill.Visible = true
+		fb.HealthFill.BackgroundColor3 = hc
+		fb.HealthFill.BackgroundTransparency = 0
+		fb.HealthFill.Position = P(bx + 1, by + bh * (1 - hp))
+		fb.HealthFill.Size = UDim2.fromOffset(bw - 2, math.max(1, bh * hp))
+	else
+		fb.HealthBack.Visible = false
+		fb.HealthFill.Visible = false
+	end
+
+	if flag("ESP_Head", false) then
+		local hs = camera:WorldToViewportPoint((cf * CFrame.new(0, size.Y / 2, 0)).Position)
+		fb.Head.Visible = true
+		fb.Head.AnchorPoint = Vector2.new(0, 0)
+		fb.Head.BackgroundColor3 = color
+		fb.Head.BackgroundTransparency = 0
+		fb.Head.Position = P(hs.X - 2, hs.Y - 2)
+		fb.Head.Size = UDim2.fromOffset(4, 4)
+	else
+		fb.Head.Visible = false
+	end
+end
+
+-- ================= MAIN =================
+
+Players.PlayerAdded:Connect(function(p)
+	if p == LocalPlayer then return end
+	if haveDrawing then CreateESP(p) else CreateUIFallback(p) end
+end)
+Players.PlayerRemoving:Connect(function(p)
+	RemoveESP(p)
+	RemoveUIFallback(p)
+end)
 
 for _, player in ipairs(Players:GetPlayers()) do
-	if player ~= LocalPlayer then CreateESP(player) end
+	if player ~= LocalPlayer then
+		if haveDrawing then
+			CreateESP(player)
+		else
+			CreateUIFallback(player)
+		end
+	end
 end
 
 RunService.RenderStepped:Connect(function()
@@ -456,16 +722,32 @@ RunService.RenderStepped:Connect(function()
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
-			if enabled then
-				if not Drawings[player] then CreateESP(player) end
-				local esp = Drawings[player]
-				if esp then updatePlayer(player, esp, camera) end
+			if haveDrawing then
+				if enabled then
+					if not Drawings[player] then CreateESP(player) end
+					local esp = Drawings[player]
+					if esp then updatePlayer(player, esp, camera) end
+				else
+					local esp = Drawings[player]
+					if esp then hidePlayer(esp) end
+				end
 			else
-				local esp = Drawings[player]
-				if esp then hidePlayer(esp) end
+				if not UIPlayers[player] then CreateUIFallback(player) end
+				if enabled then
+					local fb = UIPlayers[player]
+					if fb then updatePlayerUI(player, fb, camera) end
+				else
+					local fb = UIPlayers[player]
+					if fb then hideUIPlayer(fb) end
+				end
 			end
 		end
 	end
 end)
 
-print("[VisionWare] ESP loaded")
+if haveDrawing then
+	print("[VisionWare] ESP loaded (Drawing API)")
+else
+	warn("[VisionWare] Drawing API not found - using UI fallback.")
+	print("[VisionWare] ESP loaded (UI fallback)")
+end

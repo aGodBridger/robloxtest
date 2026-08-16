@@ -77,7 +77,7 @@ local function acquireTarget(camera)
 		if player ~= LocalPlayer then
 			local character = player.Character
 			local part = findHitpart(character, hitpartName)
-			if isHeadValid(part) and (not teamCheck or player.Team ~= LocalPlayer.Team) then
+			if isHeadValid(part) and (not teamCheck or player.Team == nil or player.Team ~= LocalPlayer.Team) then
 				if not visibleOnly or isVisible(camera, part) then
 					local screen, onScreen = camera:WorldToViewportPoint(part.Position)
 					if onScreen and screen.Z > 0 then
@@ -129,6 +129,8 @@ local function predictedPosition(camera, part)
 	return part.Position + velocity * (amount * (dist / 750))
 end
 
+local lastLock, lastLockTime = nil, 0
+
 local function doAim()
 	if not flag("Aimbot_Enabled", true) then return end
 	if not flag("Aimbot_Key", false) then return end
@@ -137,7 +139,15 @@ local function doAim()
 	if not camera then return end
 
 	local target = acquireTarget(camera)
-	if not target then return end
+	if target then
+		local now = os.clock()
+		if target ~= lastLock and now - lastLockTime > 1 then
+			lastLock, lastLockTime = target, now
+			print(("[VisionWare] Aimbot locked onto %s"):format(target.Name))
+		end
+	else
+		return
+	end
 
 	local aimPos = target.Position
 	if flag("Aimbot_Prediction", false) then
@@ -161,4 +171,4 @@ end
 
 RunService.RenderStepped:Connect(doAim)
 
-print("[VisionWare] Aimbot loaded")
+print("[VisionWare] Aimbot loaded - hold the Activation Key (default: right-click) to aim.")
