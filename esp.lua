@@ -41,10 +41,32 @@ local function isVisible(origin, target, character)
 end
 
 local function TracerOrigin(camera)
-	if flag("ESP_TracerType", "From Bottom") == "From Mouse" then
+	local kind = flag("ESP_TracerType", "From Bottom")
+	if kind == "From Mouse" then
 		return UserInputService:GetMouseLocation()
+	elseif kind == "From Top" then
+		return Vector2.new(camera.ViewportSize.X / 2, 0)
+	elseif kind == "From Center" then
+		return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
 	end
 	return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+end
+
+local function RainbowColor(speed)
+	return Color3.fromHSV(tick() * math.max(speed or 1, 0.1) % 1, 1, 1)
+end
+
+local function PlayerNameText(player)
+	if flag("ESP_NameMode", "DisplayName") == "Username" then
+		return player.Name
+	end
+	return player.DisplayName or player.Name
+end
+
+local function IsTeammate(player)
+	local lp = LocalPlayer
+	if not (lp and player and player.Team) or not lp.Team then return false end
+	return player.Team == lp.Team
 end
 
 -- Require ALL drawing kinds to work before trusting the Drawing API.
@@ -205,6 +227,11 @@ local function updatePlayer(player, esp, camera)
 	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
 	if distance > flag("ESP_Range", 500) then hidePlayer(esp) return end
 
+	if flag("ESP_TeamCheck", false) and not flag("ESP_ShowTeam", false) and IsTeammate(player) then
+		hidePlayer(esp)
+		return
+	end
+
 	if flag("ESP_VisibleOnly", false) then
 		if not isVisible(camera.CFrame.Position, rootPart.Position + Vector3.new(0, 2, 0), character) then
 			hidePlayer(esp)
@@ -215,6 +242,15 @@ local function updatePlayer(player, esp, camera)
 	local color = GetColor(player)
 	local size = character:GetExtentsSize()
 	local cf = rootPart.CFrame
+
+	local rainbow = flag("ESP_Rainbow", false)
+	local rainbowSpeed = flag("ESP_RainbowSpeed", 1)
+	local rainbowPart = flag("ESP_RainbowParts", "All")
+	local rbColor = rainbow and RainbowColor(rainbowSpeed)
+
+	local boxColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Boxes")) and rbColor or color
+	local tracerColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Tracers")) and rbColor or flag("ESP_TracerColor", color)
+	local textColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Text")) and rbColor or color
 
 	local headWorld = cf * CFrame.new(0, size.Y / 2, 0)
 	local feetWorld = cf * CFrame.new(0, -size.Y / 2, 0)
@@ -237,7 +273,7 @@ local function updatePlayer(player, esp, camera)
 	local boxEnabled = flag("ESP_Boxes", true)
 	local boxType = flag("ESP_BoxType", "2D Box")
 	local outline = flag("ESP_Outline", true)
-	local thickness = 1
+	local thickness = flag("ESP_BoxThickness", 1)
 
 	for i = 1, #esp.BoxPool do
 		if esp.BoxPool[i] then esp.BoxPool[i].Visible = false end
@@ -246,7 +282,7 @@ local function updatePlayer(player, esp, camera)
 	if boxEnabled and boxType ~= "3D Box" then
 		if boxType == "Filled Box" and esp.Fill then
 			local opacity = flag("ESP_Opacity", 75)
-			esp.Fill.Color = color
+			esp.Fill.Color = boxColor
 			esp.Fill.Position = rect.TL
 			esp.Fill.Size = Vector2.new(boxWidth, screenHeight)
 			esp.Fill.Transparency = math.clamp(1 - opacity / 100, 0, 1)
@@ -268,7 +304,7 @@ local function updatePlayer(player, esp, camera)
 				{ rect.BR, rect.BR - Vector2.new(0, cs) },
 			}
 			for i, seg in ipairs(segs) do
-				drawSegment(esp.BoxPool, i, seg[1], seg[2], color, thickness, outline)
+				drawSegment(esp.BoxPool, i, seg[1], seg[2], boxColor, thickness, outline)
 			end
 		else
 			local segs = {
@@ -278,7 +314,7 @@ local function updatePlayer(player, esp, camera)
 				{ rect.BL, rect.TL },
 			}
 			for i, seg in ipairs(segs) do
-				drawSegment(esp.BoxPool, i, seg[1], seg[2], color, thickness, outline)
+				drawSegment(esp.BoxPool, i, seg[1], seg[2], boxColor, thickness, outline)
 			end
 		end
 	elseif boxEnabled then
@@ -325,19 +361,22 @@ local function updatePlayer(player, esp, camera)
 		if flag("ESP_Tracers", true) then
 			esp.Tracer.From = TracerOrigin(camera)
 			esp.Tracer.To = Vector2.new(screen.X, screen.Y)
-			esp.Tracer.Color = flag("ESP_TracerColor", color)
-			esp.Tracer.Thickness = 1
+			esp.Tracer.Color = tracerColor
+			esp.Tracer.Thickness = flag("ESP_TracerThickness", 1)
 			esp.Tracer.Visible = true
 		else
 			esp.Tracer.Visible = false
 		end
 	end
 
+	local textSize = flag("ESP_TextSize", 13)
+
 	if esp.Name then
 		if flag("ESP_Names", true) then
-			esp.Name.Text = player.DisplayName
+			esp.Name.Text = PlayerNameText(player)
 			esp.Name.Position = Vector2.new(rect.TL.X + boxWidth / 2, top - 18)
-			esp.Name.Color = color
+			esp.Name.Color = textColor
+			esp.Name.Size = textSize
 			esp.Name.Visible = true
 		else
 			esp.Name.Visible = false
@@ -348,7 +387,8 @@ local function updatePlayer(player, esp, camera)
 		if flag("ESP_Distance", false) then
 			esp.Distance.Text = string.format("%.0f studs", distance)
 			esp.Distance.Position = Vector2.new(rect.TL.X + boxWidth / 2, top + screenHeight + 4)
-			esp.Distance.Color = color
+			esp.Distance.Color = textColor
+			esp.Distance.Size = textSize
 			esp.Distance.Visible = true
 		else
 			esp.Distance.Visible = false
@@ -360,25 +400,41 @@ local function updatePlayer(player, esp, camera)
 			local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
 			local barHeight = screenHeight * 0.8
 			local barWidth = 4
-			local barPos = Vector2.new(rect.TL.X - barWidth - 2, top + (screenHeight - barHeight) / 2)
+			local showBar = flag("ESP_HealthStyle", "Both") ~= "Text"
+			local barSide = flag("ESP_HealthBarSide", "Left")
+			local barPosX = rect.TL.X - barWidth - 2
+			if barSide == "Right" then barPosX = rect.TR.X + 2 end
+			local barPos = Vector2.new(barPosX, top + (screenHeight - barHeight) / 2)
 			local healthColor = flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0))
 
-			esp.HealthBack.Position = barPos
-			esp.HealthBack.Size = Vector2.new(barWidth, barHeight)
-			esp.HealthBack.Color = Color3.fromRGB(0, 0, 0)
-			esp.HealthBack.Thickness = 1
-			esp.HealthBack.Visible = true
+			if showBar then
+				esp.HealthBack.Position = barPos
+				esp.HealthBack.Size = Vector2.new(barWidth, barHeight)
+				esp.HealthBack.Color = Color3.fromRGB(0, 0, 0)
+				esp.HealthBack.Thickness = 1
+				esp.HealthBack.Visible = true
 
-			esp.HealthFill.Position = Vector2.new(barPos.X + 0.5, barPos.Y + barHeight * (1 - healthPercent))
-			esp.HealthFill.Size = Vector2.new(barWidth - 1, math.max(0, barHeight * healthPercent))
-			esp.HealthFill.Color = healthColor
-			esp.HealthFill.Visible = true
+				esp.HealthFill.Position = Vector2.new(barPos.X + 0.5, barPos.Y + barHeight * (1 - healthPercent))
+				esp.HealthFill.Size = Vector2.new(barWidth - 1, math.max(0, barHeight * healthPercent))
+				esp.HealthFill.Color = healthColor
+				esp.HealthFill.Visible = true
+			else
+				esp.HealthBack.Visible = false
+				esp.HealthFill.Visible = false
+			end
 
 			if esp.HealthText then
-				esp.HealthText.Text = tostring(math.floor(humanoid.Health))
-				esp.HealthText.Position = Vector2.new(barPos.X - 4, barPos.Y + barHeight / 2)
-				esp.HealthText.Color = healthColor
-				esp.HealthText.Visible = true
+				if flag("ESP_HealthStyle", "Both") ~= "Bar" then
+					esp.HealthText.Text = tostring(math.floor(humanoid.Health))
+					local tx = barPos.X - 4
+					if barSide == "Right" then tx = barPos.X + barWidth + 2 end
+					esp.HealthText.Position = Vector2.new(tx, barPos.Y + barHeight / 2)
+					esp.HealthText.Color = rainbow and rbColor or healthColor
+					esp.HealthText.Size = textSize
+					esp.HealthText.Visible = true
+				else
+					esp.HealthText.Visible = false
+				end
 			end
 		else
 			esp.HealthBack.Visible = false
@@ -390,7 +446,7 @@ local function updatePlayer(player, esp, camera)
 	if esp.Head then
 		if flag("ESP_Head", false) then
 			local headScreenPos = camera:WorldToViewportPoint(headWorld.Position)
-			esp.Head.Color = color
+			esp.Head.Color = boxColor
 			esp.Head.Position = Vector2.new(headScreenPos.X - 2, headScreenPos.Y - 2)
 			esp.Head.Size = Vector2.new(4, 4)
 			esp.Head.Visible = true
@@ -444,8 +500,8 @@ local function updatePlayer(player, esp, camera)
 			end
 			line.From = Vector2.new(a.X, a.Y)
 			line.To = Vector2.new(b.X, b.Y)
-			line.Color = color
-			line.Thickness = 1
+			line.Color = flag("ESP_SkeletonColor", Color3.fromRGB(255, 255, 255))
+			line.Thickness = flag("ESP_SkeletonThickness", 1)
 			line.Visible = true
 		end
 
@@ -529,6 +585,7 @@ local function CreateUIFallback(player)
 		Distance = newUIText(root),
 		HealthBack = newUIFrame(root),
 		HealthFill = newUIFrame(root),
+		HealthText = newUIText(root),
 	}
 	fb.Box.BorderSizePixel = 1
 	fb.HealthBack.BorderSizePixel = 1
@@ -579,6 +636,11 @@ local function updatePlayerUI(player, fb, camera)
 	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
 	if distance > flag("ESP_Range", 500) then hideUIPlayer(fb) return end
 
+	if flag("ESP_TeamCheck", false) and not flag("ESP_ShowTeam", false) and IsTeammate(player) then
+		hideUIPlayer(fb)
+		return
+	end
+
 	if flag("ESP_VisibleOnly", false) then
 		if not isVisible(camera.CFrame.Position, rootPart.Position + Vector3.new(0, 2, 0), character) then
 			hideUIPlayer(fb)
@@ -589,6 +651,15 @@ local function updatePlayerUI(player, fb, camera)
 	local color = GetColor(player)
 	local size = character:GetExtentsSize()
 	local cf = rootPart.CFrame
+
+	local rainbow = flag("ESP_Rainbow", false)
+	local rainbowSpeed = flag("ESP_RainbowSpeed", 1)
+	local rainbowPart = flag("ESP_RainbowParts", "All")
+	local rbColor = rainbow and RainbowColor(rainbowSpeed)
+
+	local boxColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Boxes")) and rbColor or color
+	local tracerColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Tracers")) and rbColor or flag("ESP_TracerColor", color)
+	local textColor = (rainbow and (rainbowPart == "All" or rainbowPart == "Text")) and rbColor or color
 
 	local top = camera:WorldToViewportPoint((cf * CFrame.new(0, size.Y / 2, 0)).Position)
 	local bottom = camera:WorldToViewportPoint((cf * CFrame.new(0, -size.Y / 2, 0)).Position)
@@ -616,7 +687,7 @@ local function updatePlayerUI(player, fb, camera)
 	if boxOn and boxType ~= "3D Box" then
 		if boxType == "Filled Box" then
 			fb.Fill.Visible = true
-			fb.Fill.BackgroundColor3 = color
+			fb.Fill.BackgroundColor3 = boxColor
 			fb.Fill.BackgroundTransparency = math.clamp(1 - flag("ESP_Opacity", 75) / 100, 0, 1)
 			fb.Fill.Position = P(left, ty)
 			fb.Fill.Size = UDim2.fromOffset(width, height)
@@ -637,7 +708,7 @@ local function updatePlayerUI(player, fb, camera)
 			for i, s in ipairs(segs) do
 				local seg = fb.Corners[i]
 				seg.Visible = true
-				seg.BackgroundColor3 = color
+				seg.BackgroundColor3 = boxColor
 				seg.BackgroundTransparency = 0
 				seg.AnchorPoint = Vector2.new(0, 0)
 				seg.Position = P(s[1], s[2])
@@ -646,26 +717,29 @@ local function updatePlayerUI(player, fb, camera)
 		else
 			fb.Box.Visible = true
 			fb.Box.BackgroundTransparency = 1
-			fb.Box.BorderColor3 = color
-			fb.Box.BorderSizePixel = outline and 1 or 0
+			fb.Box.BorderColor3 = boxColor
+			fb.Box.BorderSizePixel = outline and flag("ESP_BoxThickness", 1) or 0
 			fb.Box.Position = P(left, ty)
 			fb.Box.Size = UDim2.fromOffset(width, height)
 		end
 	end
 
 	if flag("ESP_Tracers", true) then
-		positionUILine(fb.Tracer, TracerOrigin(camera), Vector2.new(screen.X, screen.Y), 1, flag("ESP_TracerColor", color))
+		positionUILine(fb.Tracer, TracerOrigin(camera), Vector2.new(screen.X, screen.Y), flag("ESP_TracerThickness", 1), tracerColor)
 		fb.Tracer.Visible = true
 	else
 		fb.Tracer.Visible = false
 	end
 
+	local textSize = flag("ESP_TextSize", 13)
+
 	if flag("ESP_Names", true) then
-		fb.Name.Text = player.DisplayName
-		fb.Name.TextColor3 = color
+		fb.Name.Text = PlayerNameText(player)
+		fb.Name.TextColor3 = textColor
+		fb.Name.TextSize = textSize
 		fb.Name.AnchorPoint = Vector2.new(0.5, 0.5)
 		fb.Name.Position = P(left + width / 2, ty - 10)
-		fb.Name.Size = UDim2.fromOffset(200, 15)
+		fb.Name.Size = UDim2.fromOffset(200, textSize + 2)
 		fb.Name.Visible = true
 	else
 		fb.Name.Visible = false
@@ -673,10 +747,11 @@ local function updatePlayerUI(player, fb, camera)
 
 	if flag("ESP_Distance", false) then
 		fb.Distance.Text = string.format("%.0f studs", distance)
-		fb.Distance.TextColor3 = color
+		fb.Distance.TextColor3 = textColor
+		fb.Distance.TextSize = textSize
 		fb.Distance.AnchorPoint = Vector2.new(0.5, 0)
 		fb.Distance.Position = P(left + width / 2, ty + height + 4)
-		fb.Distance.Size = UDim2.fromOffset(200, 15)
+		fb.Distance.Size = UDim2.fromOffset(200, textSize + 2)
 		fb.Distance.Visible = true
 	else
 		fb.Distance.Visible = false
@@ -686,32 +761,55 @@ local function updatePlayerUI(player, fb, camera)
 		local hp = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
 		local bh = height * 0.8
 		local bw = 4
+		local showBar = flag("ESP_HealthStyle", "Both") ~= "Text"
+		local barSide = flag("ESP_HealthBarSide", "Left")
 		local bx = left - bw - 2
+		if barSide == "Right" then bx = left + width + 2 end
 		local by = ty + (height - bh) / 2
 		local hc = flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0))
 
-		fb.HealthBack.Visible = true
-		fb.HealthBack.BackgroundColor3 = Color3.new(0, 0, 0)
-		fb.HealthBack.BackgroundTransparency = 0
-		fb.HealthBack.BorderColor3 = Color3.new(0, 0, 0)
-		fb.HealthBack.Position = P(bx, by)
-		fb.HealthBack.Size = UDim2.fromOffset(bw, bh)
+		if showBar then
+			fb.HealthBack.Visible = true
+			fb.HealthBack.BackgroundColor3 = Color3.new(0, 0, 0)
+			fb.HealthBack.BackgroundTransparency = 0
+			fb.HealthBack.BorderColor3 = Color3.new(0, 0, 0)
+			fb.HealthBack.Position = P(bx, by)
+			fb.HealthBack.Size = UDim2.fromOffset(bw, bh)
 
-		fb.HealthFill.Visible = true
-		fb.HealthFill.BackgroundColor3 = hc
-		fb.HealthFill.BackgroundTransparency = 0
-		fb.HealthFill.Position = P(bx + 1, by + bh * (1 - hp))
-		fb.HealthFill.Size = UDim2.fromOffset(bw - 2, math.max(1, bh * hp))
+			fb.HealthFill.Visible = true
+			fb.HealthFill.BackgroundColor3 = hc
+			fb.HealthFill.BackgroundTransparency = 0
+			fb.HealthFill.Position = P(bx + 1, by + bh * (1 - hp))
+			fb.HealthFill.Size = UDim2.fromOffset(bw - 2, math.max(1, bh * hp))
+		else
+			fb.HealthBack.Visible = false
+			fb.HealthFill.Visible = false
+		end
+
+		if flag("ESP_HealthStyle", "Both") ~= "Bar" then
+			fb.HealthText.Text = tostring(math.floor(humanoid.Health))
+			fb.HealthText.TextColor3 = rainbow and rbColor or hc
+			fb.HealthText.TextSize = textSize
+			fb.HealthText.AnchorPoint = Vector2.new(0, 0.5)
+			local hx = bx - 4
+			if barSide == "Right" then hx = bx + bw + 2 end
+			fb.HealthText.Position = P(hx, by + bh / 2)
+			fb.HealthText.Size = UDim2.fromOffset(100, textSize + 2)
+			fb.HealthText.Visible = true
+		else
+			fb.HealthText.Visible = false
+		end
 	else
 		fb.HealthBack.Visible = false
 		fb.HealthFill.Visible = false
+		fb.HealthText.Visible = false
 	end
 
 	if flag("ESP_Head", false) then
 		local hs = camera:WorldToViewportPoint((cf * CFrame.new(0, size.Y / 2, 0)).Position)
 		fb.Head.Visible = true
 		fb.Head.AnchorPoint = Vector2.new(0, 0)
-		fb.Head.BackgroundColor3 = color
+		fb.Head.BackgroundColor3 = boxColor
 		fb.Head.BackgroundTransparency = 0
 		fb.Head.Position = P(hs.X - 2, hs.Y - 2)
 		fb.Head.Size = UDim2.fromOffset(4, 4)
