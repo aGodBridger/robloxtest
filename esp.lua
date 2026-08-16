@@ -149,10 +149,10 @@ local function CreateESP(player)
 		BoxPool = newLinePool(24),
 		Skeleton = newLinePool(20),
 		Tracer = safeDrawing("Line"),
-		Head = newSquare(true),
+		Head = newLinePool(2),
 		Fill = newSquare(true),
-		HealthBack = newSquare(false),
-		HealthFill = newSquare(true),
+		HealthBack = newLinePool(8),
+		HealthFill = safeDrawing("Line"),
 		Name = newText(),
 		Distance = newText(),
 		HealthText = newText(),
@@ -164,7 +164,9 @@ local function RemoveESP(player)
 	if esp then
 		for _, line in ipairs(esp.BoxPool) do if line then line:Remove() end end
 		for _, line in ipairs(esp.Skeleton) do if line then line:Remove() end end
-		local extras = { esp.Tracer, esp.Head, esp.Fill, esp.HealthBack, esp.HealthFill, esp.Name, esp.Distance, esp.HealthText }
+		for _, line in ipairs(esp.Head) do if line then line:Remove() end end
+		for _, line in ipairs(esp.HealthBack) do if line then line:Remove() end end
+		local extras = { esp.Tracer, esp.Fill, esp.HealthFill, esp.Name, esp.Distance, esp.HealthText }
 		for _, d in ipairs(extras) do if d then d:Remove() end end
 		Drawings[player] = nil
 	end
@@ -173,10 +175,10 @@ end
 local function hidePlayer(esp)
 	for _, line in ipairs(esp.BoxPool) do if line then line.Visible = false end end
 	for _, line in ipairs(esp.Skeleton) do if line then line.Visible = false end end
+	for _, line in ipairs(esp.Head) do if line then line.Visible = false end end
+	for _, line in ipairs(esp.HealthBack) do if line then line.Visible = false end end
 	if esp.Tracer then esp.Tracer.Visible = false end
-	if esp.Head then esp.Head.Visible = false end
 	if esp.Fill then esp.Fill.Visible = false end
-	if esp.HealthBack then esp.HealthBack.Visible = false end
 	if esp.HealthFill then esp.HealthFill.Visible = false end
 	if esp.Name then esp.Name.Visible = false end
 	if esp.Distance then esp.Distance.Visible = false end
@@ -401,19 +403,25 @@ local function updatePlayer(player, esp, camera)
 			local healthColor = flag("ESP_HealthColor", Color3.fromRGB(0, 255, 0))
 
 			if showBar then
-				esp.HealthBack.Position = barPos
-				esp.HealthBack.Size = Vector2.new(barWidth, barHeight)
-				esp.HealthBack.Color = Color3.fromRGB(0, 0, 0)
-				esp.HealthBack.Thickness = 1
-				esp.HealthBack.Visible = true
+				local barTL, barTR = barPos, Vector2.new(barPos.X + barWidth, barPos.Y)
+				local barBL, barBR = Vector2.new(barPos.X, barPos.Y + barHeight), Vector2.new(barPos.X + barWidth, barPos.Y + barHeight)
+				drawSegment(esp.HealthBack, 1, barTL, barTR, Color3.fromRGB(0, 0, 0), 1, false)
+				drawSegment(esp.HealthBack, 2, barTR, barBR, Color3.fromRGB(0, 0, 0), 1, false)
+				drawSegment(esp.HealthBack, 3, barBR, barBL, Color3.fromRGB(0, 0, 0), 1, false)
+				drawSegment(esp.HealthBack, 4, barBL, barTL, Color3.fromRGB(0, 0, 0), 1, false)
 
-				esp.HealthFill.Position = Vector2.new(barPos.X + 0.5, barPos.Y + barHeight * (1 - healthPercent))
-				esp.HealthFill.Size = Vector2.new(barWidth - 1, math.max(0, barHeight * healthPercent))
-				esp.HealthFill.Color = healthColor
-				esp.HealthFill.Visible = true
+				if esp.HealthFill then
+					local fillTop = barPos.Y + barHeight * (1 - healthPercent)
+					local fillHeight = math.max(0, barHeight * healthPercent)
+					esp.HealthFill.Color = healthColor
+					esp.HealthFill.Thickness = barWidth - 1
+					esp.HealthFill.From = Vector2.new(barPos.X + barWidth / 2, fillTop)
+					esp.HealthFill.To = Vector2.new(barPos.X + barWidth / 2, fillTop + fillHeight)
+					esp.HealthFill.Visible = true
+				end
 			else
-				esp.HealthBack.Visible = false
-				esp.HealthFill.Visible = false
+				for _, line in ipairs(esp.HealthBack) do if line then line.Visible = false end end
+				if esp.HealthFill then esp.HealthFill.Visible = false end
 			end
 
 			if esp.HealthText then
@@ -430,8 +438,8 @@ local function updatePlayer(player, esp, camera)
 				end
 			end
 		else
-			esp.HealthBack.Visible = false
-			esp.HealthFill.Visible = false
+			for _, line in ipairs(esp.HealthBack) do if line then line.Visible = false end end
+			if esp.HealthFill then esp.HealthFill.Visible = false end
 			if esp.HealthText then esp.HealthText.Visible = false end
 		end
 	end
@@ -439,12 +447,16 @@ local function updatePlayer(player, esp, camera)
 	if esp.Head then
 		if flag("ESP_Head", false) then
 			local headScreenPos = camera:WorldToViewportPoint(headWorld.Position)
-			esp.Head.Color = boxColor
-			esp.Head.Position = Vector2.new(headScreenPos.X - 2, headScreenPos.Y - 2)
-			esp.Head.Size = Vector2.new(4, 4)
-			esp.Head.Visible = true
+			local dot = esp.Head[1]
+			if dot then
+				dot.Color = boxColor
+				dot.Thickness = 4
+				dot.From = Vector2.new(headScreenPos.X + 2, headScreenPos.Y)
+				dot.To = Vector2.new(headScreenPos.X - 2, headScreenPos.Y)
+				dot.Visible = true
+			end
 		else
-			esp.Head.Visible = false
+			for _, line in ipairs(esp.Head) do if line then line.Visible = false end end
 		end
 	end
 
