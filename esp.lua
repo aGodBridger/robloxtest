@@ -281,19 +281,18 @@ local function drawHeadDot(dotPool, center, radius, color)
 		put(count,
 			Vector2_new(center.X + math.cos(a1) * radius, center.Y + math.sin(a1) * radius),
 			Vector2_new(center.X + math.cos(a2) * radius, center.Y + math.sin(a2) * radius),
-			Color3fromRGB(0, 0, 0), 3)
+			Color3fromRGB(0, 0, 0), 2.5)
 	end
-	-- filled interior (dense scanlines so it looks solid)
-	local inner = radius - 1.5
-	for y = -inner, inner, 0.5 do
+	-- filled interior: overlapping 1px-stepped horizontal bands so it's fully solid
+	local inner = radius - 1
+	local maxY = math.max(0, math.floor(inner))
+	for y = -maxY, maxY do
 		local half = math.sqrt(math.max(0, inner * inner - y * y))
-		if half > 0.2 then
-			count = count + 1
-			put(count,
-				Vector2_new(center.X - half, center.Y + y),
-				Vector2_new(center.X + half, center.Y + y),
-				color, 1)
-		end
+		count = count + 1
+		put(count,
+			Vector2_new(center.X - half, center.Y + y),
+			Vector2_new(center.X + half, center.Y + y),
+			color, 2)
 	end
 	-- hide unused pool lines
 	for i = count + 1, #dotPool do
@@ -544,7 +543,8 @@ local function updatePlayer(player, esp, camera)
 			local headPart = character:FindFirstChild("Head")
 			local headPos = headPart and headPart.Position or headWorld.Position
 			local headScreenPos = camera:WorldToViewportPoint(headPos)
-			drawHeadDot(esp.Head, Vector2_new(headScreenPos.X, headScreenPos.Y), 4, boxColor)
+			local dotRadius = MathClamp(screenHeight * 0.055, 2.5, 10)
+			drawHeadDot(esp.Head, Vector2_new(headScreenPos.X, headScreenPos.Y), dotRadius, boxColor)
 		else
 			for _, line in ipairs(esp.Head) do if line then line.Visible = false end end
 		end
@@ -902,12 +902,13 @@ local function updatePlayerUI(player, fb, camera)
 
 	if C.HeadDot then
 		local hs = camera:WorldToViewportPoint((cf * CFrame_new(0, size.Y / 2, 0)).Position)
+		local dotRadius = MathClamp(height * 0.055, 2.5, 10)
 		fb.Head.Visible = true
 		fb.Head.AnchorPoint = Vector2_new(0, 0)
 		fb.Head.BackgroundColor3 = boxColor
 		fb.Head.BackgroundTransparency = 0
-		fb.Head.Position = P(hs.X - 2, hs.Y - 2)
-		fb.Head.Size = UDim2.fromOffset(4, 4)
+		fb.Head.Position = P(hs.X - dotRadius, hs.Y - dotRadius)
+		fb.Head.Size = UDim2.fromOffset(dotRadius * 2, dotRadius * 2)
 	else
 		fb.Head.Visible = false
 	end
