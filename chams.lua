@@ -209,13 +209,9 @@ task.spawn(function()
 				print("[Chams] Disabled")
 			end
 		elseif enabled then
-			local changed = false
-			if color ~= lastColor then changed = true end
-			if opacity ~= lastOpacity then changed = true end
-			if visibleOnly ~= lastVisibleOnly then changed = true end
-			if changed then
-				updateAll(color, opacity, visibleOnly)
-			end
+			-- Re-apply every tick so players who joined or respawned
+			-- (including while the character was still loading) get chams.
+			updateAll(color, opacity, visibleOnly)
 		end
 
 		lastEnabled = enabled

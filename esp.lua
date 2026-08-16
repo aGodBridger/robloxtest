@@ -149,7 +149,7 @@ local function CreateESP(player)
 		BoxPool = newLinePool(24),
 		Skeleton = newLinePool(20),
 		Tracer = safeDrawing("Line"),
-		Head = newLinePool(48),
+		Head = newLinePool(64),
 		Fill = newSquare(true),
 		HealthBack = newLinePool(8),
 		HealthFill = safeDrawing("Line"),
@@ -207,6 +207,7 @@ local function drawSegment(pool, index, from, to, color, thickness, outline)
 end
 
 local function drawHeadDot(dotPool, center, radius, color)
+	local outlineSegments = 32
 	local count = 0
 	local function put(index, from, to, lcolor, thickness)
 		local line = dotPool[index]
@@ -218,26 +219,27 @@ local function drawHeadDot(dotPool, center, radius, color)
 			line.Visible = true
 		end
 	end
-	-- dark outline ring
-	local segments = 20
-	for i = 1, segments do
+	-- dark outline ring (genuine circle, many segments)
+	for i = 1, outlineSegments do
 		count = count + 1
-		local a1 = (i - 1) / segments * math.pi * 2
-		local a2 = i / segments * math.pi * 2
+		local a1 = (i - 1) / outlineSegments * math.pi * 2
+		local a2 = i / outlineSegments * math.pi * 2
 		put(count,
 			Vector2.new(center.X + math.cos(a1) * radius, center.Y + math.sin(a1) * radius),
 			Vector2.new(center.X + math.cos(a2) * radius, center.Y + math.sin(a2) * radius),
-			Color3.fromRGB(0, 0, 0), 2)
+			Color3.fromRGB(0, 0, 0), 3)
 	end
-	-- filled interior (scanlines)
-	for y = math.floor(-radius) + 1, math.ceil(radius) - 1 do
-		local half = math.sqrt(math.max(0, radius * radius - y * y)) - 1
-		if half <= 0.2 then break end
-		count = count + 1
-		put(count,
-			Vector2.new(center.X - half, center.Y + y),
-			Vector2.new(center.X + half, center.Y + y),
-			color, 1)
+	-- filled interior (dense scanlines so it looks solid)
+	local inner = radius - 1.5
+	for y = -inner, inner, 0.5 do
+		local half = math.sqrt(math.max(0, inner * inner - y * y))
+		if half > 0.2 then
+			count = count + 1
+			put(count,
+				Vector2.new(center.X - half, center.Y + y),
+				Vector2.new(center.X + half, center.Y + y),
+				color, 1)
+		end
 	end
 	-- hide unused pool lines
 	for i = count + 1, #dotPool do
