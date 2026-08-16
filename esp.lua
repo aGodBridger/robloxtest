@@ -134,19 +134,12 @@ end
 
 local function newSquare(filled)
 	local square = safeDrawing("Square")
-	if square then
-		local ok = pcall(function()
-			square.Visible = false
-			square.Color = Color3.new(1, 1, 1)
-			square.Filled = filled
-			square.Thickness = 1
-			square.Transparency = 0
-		end)
-		if not ok then
-			pcall(function() square:Remove() end)
-			return nil
-		end
-	end
+	if not square then return nil end
+	pcall(function() square.Visible = false end)
+	pcall(function() square.Color = Color3.new(1, 1, 1) end)
+	pcall(function() square.Filled = filled end)
+	pcall(function() square.Thickness = 1 end)
+	pcall(function() square.Transparency = 0 end)
 	return square
 end
 
