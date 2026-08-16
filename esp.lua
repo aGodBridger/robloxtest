@@ -149,7 +149,7 @@ local function CreateESP(player)
 		BoxPool = newLinePool(24),
 		Skeleton = newLinePool(20),
 		Tracer = safeDrawing("Line"),
-		Head = newLinePool(2),
+		Head = newLinePool(48),
 		Fill = newSquare(true),
 		HealthBack = newLinePool(8),
 		HealthFill = safeDrawing("Line"),
@@ -203,6 +203,45 @@ local function drawSegment(pool, index, from, to, color, thickness, outline)
 		fg.From = from
 		fg.To = to
 		fg.Visible = true
+	end
+end
+
+local function drawHeadDot(dotPool, center, radius, color)
+	local count = 0
+	local function put(index, from, to, lcolor, thickness)
+		local line = dotPool[index]
+		if line then
+			line.Color = lcolor
+			line.Thickness = thickness
+			line.From = from
+			line.To = to
+			line.Visible = true
+		end
+	end
+	-- dark outline ring
+	local segments = 20
+	for i = 1, segments do
+		count = count + 1
+		local a1 = (i - 1) / segments * math.pi * 2
+		local a2 = i / segments * math.pi * 2
+		put(count,
+			Vector2.new(center.X + math.cos(a1) * radius, center.Y + math.sin(a1) * radius),
+			Vector2.new(center.X + math.cos(a2) * radius, center.Y + math.sin(a2) * radius),
+			Color3.fromRGB(0, 0, 0), 2)
+	end
+	-- filled interior (scanlines)
+	for y = math.floor(-radius) + 1, math.ceil(radius) - 1 do
+		local half = math.sqrt(math.max(0, radius * radius - y * y)) - 1
+		if half <= 0.2 then break end
+		count = count + 1
+		put(count,
+			Vector2.new(center.X - half, center.Y + y),
+			Vector2.new(center.X + half, center.Y + y),
+			color, 1)
+	end
+	-- hide unused pool lines
+	for i = count + 1, #dotPool do
+		if dotPool[i] then dotPool[i].Visible = false end
 	end
 end
 
@@ -446,15 +485,10 @@ local function updatePlayer(player, esp, camera)
 
 	if esp.Head then
 		if flag("ESP_Head", false) then
-			local headScreenPos = camera:WorldToViewportPoint(headWorld.Position)
-			local dot = esp.Head[1]
-			if dot then
-				dot.Color = boxColor
-				dot.Thickness = 4
-				dot.From = Vector2.new(headScreenPos.X + 2, headScreenPos.Y)
-				dot.To = Vector2.new(headScreenPos.X - 2, headScreenPos.Y)
-				dot.Visible = true
-			end
+			local headPart = character:FindFirstChild("Head")
+			local headPos = headPart and headPart.Position or headWorld.Position
+			local headScreenPos = camera:WorldToViewportPoint(headPos)
+			drawHeadDot(esp.Head, Vector2.new(headScreenPos.X, headScreenPos.Y), 4, boxColor)
 		else
 			for _, line in ipairs(esp.Head) do if line then line.Visible = false end end
 		end

@@ -145,6 +145,26 @@ local function clearAll()
 end
 
 -- ===== Player lifecycle =====
+local function applyToCharacter(character)
+	if not character or not character:IsA("Model") then return end
+	if not flag("ESP_Chams", false) then return end
+	local color = flag("ESP_ChamsColor", Color3.fromRGB(255, 255, 255))
+	local opacity = flag("ESP_Opacity", 75)
+	local visibleOnly = flag("ESP_VisibleOnly", false)
+	updateCharacter(character, color, opacity, visibleOnly)
+end
+
+local function hookPlayer(player)
+	if player == LocalPlayer then return end
+	if player.Character then applyToCharacter(player.Character) end
+	player.CharacterAdded:Connect(applyToCharacter)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+	hookPlayer(player)
+end
+
+Players.PlayerAdded:Connect(hookPlayer)
 Players.PlayerRemoving:Connect(function(player)
 	if player.Character then removeState(player.Character) end
 end)
