@@ -9,6 +9,8 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+local Pf = _G.Pf or (getgenv and getgenv().Pf)
+
 local function getLibrary()
 	return _G.Library or (getgenv and getgenv().Library)
 end
@@ -164,8 +166,85 @@ local function hideTargetBox()
 	end
 end
 
+-- ===== Phantom Forces: bullet-rewrite silent aim =====
+
+local PfHookInstalled = false
+local function installPfHook()
+	if PfHookInstalled or not Pf or not Pf.Active then return end
+	Pf.InstallBulletHook(function(origin, baseVelocity, accel)
+		if not C.Enabled then return nil end
+		if not CalculateChance(C.HitChance) then return nil end
+		local camera = Workspace.CurrentCamera
+		if not camera then return nil end
+		local target, _, targetPlayer = Pf.PickTarget(camera, C.Hitpart, C.FoV, C.FoVSize, C.VisibleCheck, C.TeamCheck)
+		if not target then return nil end
+		local speed = baseVelocity and baseVelocity.Magnitude or 10000
+		if not speed or speed <= 0 then speed = 10000 end
+		return Pf.SolveTrajectory(
+			origin or camera.CFrame.Position,
+			accel or Pf.GetBulletAcceleration(),
+			target,
+			speed,
+			Pf.GetTargetVelocity(targetPlayer)
+		)
+	end)
+	PfHookInstalled = true
+	print("[VisionWare] Silent Aim hooked into Phantom Forces bullets")
+end
+
+local function drawTargetBox(targetPos, camera)
+	if not (C.ShowTarget and targetPos and camera) then
+		hideTargetBox()
+		return
+	end
+	local screen, onScreen = camera:WorldToViewportPoint(targetPos)
+	if not onScreen then
+		hideTargetBox()
+		return
+	end
+	local cx, cy = screen.X, screen.Y
+	local s = 12
+	local segs = {
+		{ cx - s, cy - s, cx - s / 2, cy - s },
+		{ cx + s / 2, cy - s, cx + s, cy - s },
+		{ cx - s, cy + s / 2, cx - s, cy + s },
+		{ cx + s / 2, cy + s, cx + s, cy + s },
+		{ cx - s, cy - s, cx - s, cy - s / 2 },
+		{ cx - s, cy + s, cx - s, cy + s / 2 },
+		{ cx + s, cy - s, cx + s, cy - s / 2 },
+		{ cx + s, cy + s, cx + s, cy + s / 2 },
+	}
+	for i, p in ipairs(segs) do
+		local line = TargetPool[i]
+		if line then
+			line.From = Vector2.new(p[1], p[2])
+			line.To = Vector2.new(p[3], p[4])
+			line.Visible = true
+		end
+	end
+	for i = 9, #TargetPool do
+		if TargetPool[i] then TargetPool[i].Visible = false end
+	end
+end
+
 RunService.RenderStepped:Connect(function()
 	RefreshCache()
+
+	-- ===== PHANTOM FORCES MODE =====
+	-- PF bullets come from the camera with real gravity, so rotating the
+	-- character does nothing. Instead we hook the game's bullet spawner and
+	-- rewrite the outgoing velocity to hit the best target.
+	if Pf and Pf.Active then
+		installPfHook()
+		local camera = Workspace.CurrentCamera
+		local target
+		if C.Enabled and camera then
+			target = Pf.PickTarget(camera, C.Hitpart, C.FoV, C.FoVSize, C.VisibleCheck, C.TeamCheck)
+		end
+		drawTargetBox(target, camera)
+		return
+	end
+
 	local camera = Workspace.CurrentCamera
 	local character = LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -183,38 +262,7 @@ RunService.RenderStepped:Connect(function()
 		hideTargetBox()
 	end
 
-	if C.ShowTarget and target then
-		local screen, onScreen = camera:WorldToViewportPoint(target.Position)
-		if onScreen then
-			local cx, cy = screen.X, screen.Y
-			local s = 12
-			local segs = {
-				{ cx - s, cy - s, cx - s / 2, cy - s },
-				{ cx + s / 2, cy - s, cx + s, cy - s },
-				{ cx - s, cy + s / 2, cx - s, cy + s },
-				{ cx + s / 2, cy + s, cx + s, cy + s },
-				{ cx - s, cy - s, cx - s, cy - s / 2 },
-				{ cx - s, cy + s, cx - s, cy + s / 2 },
-				{ cx + s, cy - s, cx + s, cy - s / 2 },
-				{ cx + s, cy + s, cx + s, cy + s / 2 },
-			}
-			for i, p in ipairs(segs) do
-				local line = TargetPool[i]
-				if line then
-					line.From = Vector2.new(p[1], p[2])
-					line.To = Vector2.new(p[3], p[4])
-					line.Visible = true
-				end
-			end
-		else
-			hideTargetBox()
-		end
-	else
-		hideTargetBox()
-	end
-	for i = 9, #TargetPool do
-		if TargetPool[i] then TargetPool[i].Visible = false end
-	end
+	drawTargetBox(target and target.Position, camera)
 end)
 
-print("[VisionWare] Silent Aim loaded (body-rotate mode, camera is never moved)")
+print("[VisionWare] Silent Aim loaded (body-rotate for normal games, bullet-rewrite in Phantom Forces)")

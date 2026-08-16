@@ -6,6 +6,8 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+local Pf = _G.Pf or (getgenv and getgenv().Pf)
+
 local function getLibrary()
 	return _G.Library or (getgenv and getgenv().Library)
 end
@@ -197,6 +199,52 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+-- ===== Phantom Forces mode =====
+-- PF characters live in the game's replication system (no Humanoid to
+-- host per-part chams), so we Highlight the whole replicated model per enemy.
+local PfState = {}
+
+local function removePfHighlight(player)
+	local h = PfState[player]
+	if h then
+		pcall(function() h:Destroy() end)
+		PfState[player] = nil
+	end
+end
+
+local function clearPfHighlights()
+	for player in pairs(PfState) do
+		removePfHighlight(player)
+	end
+	PfState = {}
+end
+
+local function updatePfAll(color, opacity, visibleOnly)
+	if not (Pf and Pf.Active) then return end
+	local seen = {}
+	Pf.ForEachEnemy(function(player)
+		seen[player] = true
+		local view = Pf.Resolve(player)
+		if view and view.Character then
+			local h = PfState[player]
+			if not h or not h.Parent then
+				removePfHighlight(player)
+				h = newHighlight(view.Character, view.Character, color, opacity)
+				PfState[player] = h
+			end
+			h.FillColor = color
+			h.OutlineColor = color
+			h.FillTransparency = 1 - (opacity / 100)
+			h.DepthMode = visibleOnly and Enum.HighlightDepthMode.Occluded or Enum.HighlightDepthMode.AlwaysOnTop
+		end
+	end)
+	for player in pairs(PfState) do
+		if not seen[player] then
+			removePfHighlight(player)
+		end
+	end
+end
+
 -- ===== Main loop =====
 task.spawn(function()
 	local lastEnabled = false
@@ -215,16 +263,25 @@ task.spawn(function()
 
 		if enabled ~= lastEnabled then
 			if enabled then
-				updateAll(color, opacity, visibleOnly)
+				if Pf and Pf.Active then
+					updatePfAll(color, opacity, visibleOnly)
+				else
+					updateAll(color, opacity, visibleOnly)
+				end
 				print("[Chams] Enabled")
 			else
 				clearAll()
+				clearPfHighlights()
 				print("[Chams] Disabled")
 			end
 		elseif enabled then
 			-- Re-apply every tick so players who joined or respawned
 			-- (including while the character was still loading) get chams.
-			updateAll(color, opacity, visibleOnly)
+			if Pf and Pf.Active then
+				updatePfAll(color, opacity, visibleOnly)
+			else
+				updateAll(color, opacity, visibleOnly)
+			end
 		end
 
 		lastEnabled = enabled

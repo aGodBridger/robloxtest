@@ -4,6 +4,8 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+local Pf = _G.Pf or (getgenv and getgenv().Pf)
+
 local Library = _G.Library
 local Color3fromRGB = Color3.fromRGB
 local Vector2_new = Vector2.new
@@ -69,18 +71,41 @@ local function RefreshCache()
 	C.EnemyColor = get("ESP_EnemyColor", Color3fromRGB(255, 25, 25))
 end
 
-local function GetColor(player)
+local function GetColor(player, isEnemy)
 	local L = Library
 	if L then
 		if L.Priorities and table.find(L.Priorities, player) then
 			return Color3fromRGB(255, 210, 0)
 		elseif L.Friends and table.find(L.Friends, player) then
 			return Color3fromRGB(0, 255, 0)
+		elseif (Pf and Pf.Active) then
+			return isEnemy and C.EnemyColor or C.TeamColor
 		elseif player.Team == LocalPlayer.Team then
 			return C.TeamColor
 		end
 	end
 	return C.EnemyColor
+end
+
+-- Resolve a player's ESP data. In Phantom Forces we read the game's
+-- replicated character (PF hides Humanoids/teams from the normal API).
+-- Returns character, rootPart, humanoid (or proxy), isEnemy.
+local function ResolvePlayer(player)
+	if Pf and Pf.Active then
+		local view = Pf.Resolve(player)
+		if not view then return nil end
+		return view.Character, view.Root, { Health = view.Health, MaxHealth = view.MaxHealth }, view.Enemy
+	end
+	local character = player.Character
+	if not character then return nil end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not rootPart or not humanoid then return nil end
+	local isEnemy = true
+	if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+		isEnemy = false
+	end
+	return character, rootPart, humanoid, isEnemy
 end
 
 local function isVisible(origin, target, character)
@@ -303,14 +328,9 @@ local function drawHeadDot(dotPool, center, radius, color)
 end
 
 local function updatePlayer(player, esp, camera)
-	local character = player.Character
-	if not character then hidePlayer(esp) return end
-
-	local rootPart = character:FindFirstChild("HumanoidRootPart")
-	if not rootPart then hidePlayer(esp) return end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health <= 0 then hidePlayer(esp) return end
+	local character, rootPart, humanoid, isEnemy = ResolvePlayer(player)
+	if not (character and rootPart and humanoid) then hidePlayer(esp) return end
+	if humanoid.Health <= 0 then hidePlayer(esp) return end
 
 	local screen, onScreen = camera:WorldToViewportPoint(rootPart.Position)
 	if not onScreen then hidePlayer(esp) return end
@@ -318,7 +338,7 @@ local function updatePlayer(player, esp, camera)
 	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
 	if distance > C.Range then hidePlayer(esp) return end
 
-	if C.TeamCheck and not C.ShowTeam and IsTeammate(player) then
+	if C.TeamCheck and not C.ShowTeam and not isEnemy then
 		hidePlayer(esp)
 		return
 	end
@@ -330,7 +350,7 @@ local function updatePlayer(player, esp, camera)
 		end
 	end
 
-	local color = GetColor(player)
+	local color = GetColor(player, isEnemy)
 	local size = character:GetExtentsSize()
 	local cf = rootPart.CFrame
 
@@ -718,14 +738,9 @@ local function positionUILine(frame, from, to, thickness, color)
 end
 
 local function updatePlayerUI(player, fb, camera)
-	local character = player.Character
-	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-	if not character or not rootPart or not humanoid or humanoid.Health <= 0 then
-		hideUIPlayer(fb)
-		return
-	end
+	local character, rootPart, humanoid, isEnemy = ResolvePlayer(player)
+	if not (character and rootPart and humanoid) then hideUIPlayer(fb) return end
+	if humanoid.Health <= 0 then hideUIPlayer(fb) return end
 
 	local screen, onScreen = camera:WorldToViewportPoint(rootPart.Position)
 	if not onScreen then hideUIPlayer(fb) return end
@@ -733,7 +748,7 @@ local function updatePlayerUI(player, fb, camera)
 	local distance = (rootPart.Position - camera.CFrame.Position).Magnitude
 	if distance > C.Range then hideUIPlayer(fb) return end
 
-	if C.TeamCheck and not C.ShowTeam and IsTeammate(player) then
+	if C.TeamCheck and not C.ShowTeam and not isEnemy then
 		hideUIPlayer(fb)
 		return
 	end
@@ -745,7 +760,7 @@ local function updatePlayerUI(player, fb, camera)
 		end
 	end
 
-	local color = GetColor(player)
+	local color = GetColor(player, isEnemy)
 	local size = character:GetExtentsSize()
 	local cf = rootPart.CFrame
 

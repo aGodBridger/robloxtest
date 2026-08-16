@@ -7,6 +7,7 @@ local Loader = {
 	Branch = "main",                 -- Branch (main or master)
 	Files = {
 		"gui.lua",                   -- always first: creates the Library every other script reads
+		"pf.lua",                    -- Phantom Forces interface (others auto-detect via Pf.Active)
 		"aimbot.lua",
 		"silentaim.lua",
 		"esp.lua",

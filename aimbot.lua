@@ -4,6 +4,8 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+local Pf = _G.Pf or (getgenv and getgenv().Pf)
+
 local function getLibrary()
 	return _G.Library or (getgenv and getgenv().Library)
 end
@@ -192,6 +194,105 @@ local function doAim()
 	end
 end
 
-RunService.RenderStepped:Connect(doAim)
+-- ============================================================
+--  PHANTOM FORCES MODE
+--  PF has no Humanoids/Teams we can read; enemies come from the
+--  game's replication modules. Bullets drop, so we solve the
+--  trajectory and write the game's internal camera angles.
+-- ============================================================
+
+local PfLastUpdate = 0
+local PfAimTime = 0
+local PfLocked = false
+
+local function doPfAim(dt)
+	RefreshCache()
+	if not C.Enabled then
+		if Pf then Pf.AimbotActive = false end
+		return
+	end
+	if not C.Key then
+		if Pf then Pf.AimbotActive = false end
+		return
+	end
+
+	local camera = Workspace.CurrentCamera
+	if not camera then return end
+
+	local now = os.clock()
+	if now - PfLastUpdate < 1 / 30 then return end
+	PfLastUpdate = now
+
+	if not Pf then return end
+	Pf.InstallCameraStepHook()
+
+	local weapon = Pf.GetActiveWeapon()
+	if not weapon then
+		Pf.AimbotActive = false
+		return
+	end
+	local weaponData = Pf.GetWeaponData(weapon)
+	local speed = weaponData and weaponData.bulletspeed or 10000
+	if not speed or speed <= 0 then speed = 10000 end
+
+	local target, _, targetPlayer = Pf.PickTarget(camera, C.Hitpart, C.UseFov, C.FovSize, C.VisibleOnly, C.TeamCheck)
+	if not target then
+		Pf.AimbotActive = false
+		return
+	end
+
+	local cameraObj = Pf.GetActiveCamera()
+	if not cameraObj then return end
+	if type(cameraObj._angles) ~= "userdata" then return end
+
+	local aimPos = target
+	-- bullet drop + target movement compensation
+	local vel = Pf.SolveTrajectory(
+		camera.CFrame * Vector3.new(0, 0, 0.5),
+		Pf.GetBulletAcceleration(),
+		aimPos,
+		speed,
+		Pf.GetTargetVelocity(targetPlayer)
+	)
+	if not vel then return end
+
+	local pitch, yaw = Pf.VelocityToAngles(vel)
+
+	-- clamp pitch into the weapon's allowed range so we never look at the floor/sky
+	if type(cameraObj._minAngle) == "number" and type(cameraObj._maxAngle) == "number" then
+		pitch = math.clamp(pitch, cameraObj._minAngle, cameraObj._maxAngle)
+	end
+
+	-- wrap yaw around the current camera yaw
+	local cy = cameraObj._angles.Y
+	local yawDelta = (yaw + math.pi - cy) % (math.pi * 2) - math.pi + cy
+
+	local newAngles = Vector3.new(pitch, yawDelta, 0)
+
+	local smoothness = math.clamp(C.Smoothness, 0, 1)
+	if smoothness > 0 then
+		if not PfLocked then
+			PfAimTime = now
+			PfLocked = true
+		end
+		-- quadratic ease-in: fast approach, slight settle
+		local alpha = math.clamp(1 - smoothness + (now - PfAimTime) ^ 2, 0, 1)
+		newAngles = cameraObj._angles:Lerp(newAngles, alpha)
+	else
+		PfLocked = false
+	end
+
+	cameraObj._delta = (newAngles - cameraObj._angles) / math.max(dt, 1e-4)
+	cameraObj._angles = newAngles
+	Pf.AimbotActive = true
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	if Pf and Pf.Active then
+		doPfAim(dt)
+	else
+		doAim()
+	end
+end)
 
 print("[VisionWare] Aimbot loaded - hold the Activation Key (default: right-click) to aim.")

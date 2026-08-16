@@ -11,6 +11,8 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
+local Pf = _G.Pf or (getgenv and getgenv().Pf)
+
 local function getLibrary()
 	return _G.Library or (getgenv and getgenv().Library)
 end
@@ -80,6 +82,58 @@ local function RefreshCache()
 end
 
 -- ============================================================
+--  PHANTOM FORCES WEAPON HOOKS
+--  Generic gun-stab doesn't work in PF (no Tool/Handle) - instead we
+--  hook the game's own modules:
+--    NoRecoil -> RecoilSprings.applyImpulse returns early
+--    NoSpread -> zero the hipfire spread fields on weapon data clones
+-- ============================================================
+
+local PfWeaponHooked = false
+local function installPfWeaponHooks()
+	if PfWeaponHooked or not Pf or not Pf.Active or not Pf.modules then return end
+	local modules = Pf.modules
+
+	local recoil = modules.RecoilSprings
+	if recoil and type(recoil.applyImpulse) == "function" then
+		local origApply = recoil.applyImpulse
+		recoil.applyImpulse = function(...)
+			RefreshCache()
+			if C.NoRecoil then return end
+			return origApply(...)
+		end
+	end
+
+	local content = modules.ContentInterface
+	if content and type(content.getWeaponData) == "function" then
+		local origGet = content.getWeaponData
+		content.getWeaponData = function(weaponName, makeClone)
+			local data = origGet(weaponName, makeClone)
+			RefreshCache()
+			if C.NoSpread and data and makeClone then
+				pcall(function()
+					if setreadonly then pcall(setreadonly, data, false) end
+					data.hipfirespread = 0
+					data.hipfirestability = 99999
+					data.hipfirespreadrecover = 99999
+				end)
+			end
+			return data
+		end
+	end
+
+	PfWeaponHooked = true
+	print("[VisionWare] Phantom Forces weapon hooks installed")
+end
+
+task.spawn(function()
+	while not PfWeaponHooked do
+		installPfWeaponHooks()
+		task.wait(2)
+	end
+end)
+
+-- ============================================================
 --  TRIGGERBOT
 -- ============================================================
 
@@ -95,6 +149,16 @@ end
 
 local function isEnemyHit(result)
 	if not (result and result.Instance) then return false end
+
+	-- Phantom Forces: replicated characters have no Humanoid/team we can
+	-- read, so ask the PF interface for the crosshair-nearest enemy instead.
+	if Pf and Pf.Active then
+		local camera = Workspace.CurrentCamera
+		if not camera then return false end
+		local target = Pf.PickTarget(camera, "Head", true, 5, false, flag("Triggerbot_TeamCheck", false))
+		return target ~= nil
+	end
+
 	local model = result.Instance:FindFirstAncestorOfClass("Model")
 	if not model then return false end
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
