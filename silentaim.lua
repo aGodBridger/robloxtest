@@ -109,11 +109,30 @@ local function getClosestTarget(camera)
 end
 
 -- ===== Body rotation =====
+-- Humanoid.AutoRotate snaps the root back toward movement direction every
+-- physics step, which kills our rotation. We disable it while aiming and
+-- restore the original value when inactive.
+local AutoRotateSuspended = false
+local function setAutoRotate(humanoid, flag)
+	if not humanoid then return end
+	if flag and not AutoRotateSuspended then
+		AutoRotateSuspended = true
+		pcall(function() humanoid.AutoRotate = false end)
+	elseif not flag and AutoRotateSuspended then
+		AutoRotateSuspended = false
+		pcall(function() humanoid.AutoRotate = true end)
+	end
+end
+
 local function rotateCharacterTo(target)
 	local character = LocalPlayer.Character
 	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return end
+	if not humanoid or not root then return end
+
+	-- prevent the humanoid from overriding our facing while we aim
+	setAutoRotate(humanoid, true)
 
 	local aimPoint = predictedPoint(target, Workspace.CurrentCamera)
 	local pos = root.Position
@@ -148,7 +167,10 @@ end
 RunService.RenderStepped:Connect(function()
 	RefreshCache()
 	local camera = Workspace.CurrentCamera
+	local character = LocalPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not (C.Enabled and camera) then
+		setAutoRotate(humanoid, false)
 		hideTargetBox()
 		return
 	end
@@ -157,6 +179,7 @@ RunService.RenderStepped:Connect(function()
 	if target and CalculateChance(C.HitChance) then
 		rotateCharacterTo(target)
 	else
+		setAutoRotate(humanoid, false)
 		hideTargetBox()
 	end
 

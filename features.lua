@@ -119,10 +119,27 @@ RunService.RenderStepped:Connect(function(dt)
 
 	local hit = rayFromCenter(camera)
 	if isEnemyHit(hit) then
+		-- click at the actual crosshair position (where the ray was cast),
+		-- down then up with a small delay so games that listen for a full click fire
+		local vp = camera.ViewportSize
+		local x, y = vp.X / 2, vp.Y / 2
 		pcall(function()
-			VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-			VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+			VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
 		end)
+		task.delay(0.03, function()
+			pcall(function()
+				VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+			end)
+		end)
+
+		-- fallback: activate an equipped tool directly (some games ignore mouse events)
+		local char = LocalPlayer.Character
+		local tool = char and char:FindFirstChildOfType("Tool")
+		if tool then
+			pcall(function()
+				tool:Activate()
+			end)
+		end
 		TriggerCooldown = 1 / math.max(C.FireRate, 1)
 	end
 end)
@@ -360,7 +377,25 @@ end)
 --  MOVEMENT
 -- ============================================================
 
-local lastSpeedApplied = 0
+-- Remember original stats so toggling off restores them properly.
+local OrigStats = { Speed = nil, JumpPower = nil }
+local function cacheOriginals(humanoid)
+	if OrigStats.Speed == nil and humanoid then
+		OrigStats.Speed = humanoid.WalkSpeed
+		OrigStats.JumpPower = humanoid.JumpPower
+	end
+end
+local function restoreOriginals(humanoid)
+	if OrigStats.Speed ~= nil and humanoid then
+		humanoid.WalkSpeed = OrigStats.Speed
+		humanoid.JumpPower = OrigStats.JumpPower
+		OrigStats.Speed = nil
+		OrigStats.JumpPower = nil
+	end
+end
+
+-- Many games re-assert WalkSpeed/JumpPower from the server, so we
+-- re-apply every frame instead of throttling.
 local function applyMovement(dt)
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -369,22 +404,21 @@ local function applyMovement(dt)
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
-	-- WalkSpeed
-	lastSpeedApplied = lastSpeedApplied - dt
-	if lastSpeedApplied <= 0 then
-		if C.Speed then
-			humanoid.WalkSpeed = C.SpeedAmount
-		else
-			humanoid.WalkSpeed = 16
-		end
-		lastSpeedApplied = 0.1
+	cacheOriginals(humanoid)
+
+	-- WalkSpeed (every frame to fight server resets)
+	if C.Speed then
+		humanoid.WalkSpeed = C.SpeedAmount
+	elseif OrigStats.Speed ~= nil then
+		restoreOriginals(humanoid)
 	end
 
-	-- Jump power
+	-- Jump power: force legacy JumpPower mode so the value always applies.
 	if C.Jump then
+		humanoid.UseJumpPower = true
 		humanoid.JumpPower = C.JumpPower
-	elseif humanoid.JumpPower ~= 50 then
-		humanoid.JumpPower = 50
+	elseif OrigStats.JumpPower ~= nil then
+		restoreOriginals(humanoid)
 	end
 
 	-- Noclip
