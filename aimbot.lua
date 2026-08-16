@@ -15,6 +15,28 @@ local function flag(name, default)
 	return v
 end
 
+local C = {}
+local function RefreshCache()
+	local L = getLibrary()
+	local F = L and L.Flags or {}
+	local function get(n, d)
+		local v = F[n]
+		if v == nil then return d end
+		return v
+	end
+	C.Enabled = get("Aimbot_Enabled", true)
+	C.Key = get("Aimbot_Key", false)
+	C.Hitpart = get("Aimbot_Hitpart", "Head")
+	C.Target = get("Aimbot_Target", "Closest to Crosshair")
+	C.TeamCheck = get("Aimbot_TeamCheck", true)
+	C.VisibleOnly = get("Aimbot_VisibleOnly", false)
+	C.UseFov = get("Aimbot_FoV", true)
+	C.FovSize = get("Aimbot_FoVSize", 50)
+	C.Prediction = get("Aimbot_Prediction", false)
+	C.PredAmount = get("Aimbot_PredAmount", 0.25)
+	C.Smoothness = get("Aimbot_Smoothness", 0.2)
+end
+
 local function FovScreenRadius(fovDeg, viewportY, camFov)
 	local theta = math.rad(math.clamp(fovDeg, 1, 179) / 2)
 	local phi = math.rad(math.clamp(camFov, 1, 179) / 2)
@@ -59,12 +81,12 @@ local function findHitpart(character, name)
 end
 
 local function acquireTarget(camera)
-	local hitpartName = flag("Aimbot_Hitpart", "Head")
-	local targetMode = flag("Aimbot_Target", "Closest to Crosshair")
-	local teamCheck = flag("Aimbot_TeamCheck", true)
-	local visibleOnly = flag("Aimbot_VisibleOnly", false)
-	local useFov = flag("Aimbot_FoV", true)
-	local fovSize = flag("Aimbot_FoVSize", 50)
+	local hitpartName = C.Hitpart
+	local targetMode = C.Target
+	local teamCheck = C.TeamCheck
+	local visibleOnly = C.VisibleOnly
+	local useFov = C.UseFov
+	local fovSize = C.FovSize
 
 	local camFov = camera.FieldOfView
 	local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
@@ -124,7 +146,7 @@ local function predictedPosition(camera, part)
 	local root = character:FindFirstChild("HumanoidRootPart") or part
 	local velocity = root and root:IsA("BasePart") and root.AssemblyLinearVelocity or Vector3.new()
 	if velocity.Magnitude < 0.1 then return part.Position end
-	local amount = flag("Aimbot_PredAmount", 0.25)
+	local amount = C.PredAmount
 	local dist = (part.Position - camera.CFrame.Position).Magnitude
 	return part.Position + velocity * (amount * (dist / 750))
 end
@@ -132,8 +154,9 @@ end
 local lastLock, lastLockTime = nil, 0
 
 local function doAim()
-	if not flag("Aimbot_Enabled", true) then return end
-	if not flag("Aimbot_Key", false) then return end
+	RefreshCache()
+	if not C.Enabled then return end
+	if not C.Key then return end
 
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
@@ -150,11 +173,11 @@ local function doAim()
 	end
 
 	local aimPos = target.Position
-	if flag("Aimbot_Prediction", false) then
+	if C.Prediction then
 		aimPos = predictedPosition(camera, target)
 	end
 
-	local smoothness = math.clamp(flag("Aimbot_Smoothness", 0.2), 0, 1)
+	local smoothness = math.clamp(C.Smoothness, 0, 1)
 	local factor = 1 - smoothness
 
 	if MoveMouse then

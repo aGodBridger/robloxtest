@@ -17,6 +17,21 @@ local function flag(name, default)
 	return v
 end
 
+local C = {}
+local function RefreshCache()
+	local L = getLibrary()
+	local F = L and L.Flags or {}
+	local function get(n, d)
+		local v = F[n]
+		if v == nil then return d end
+		return v
+	end
+	C.Enabled = get("ESP_Chams", false)
+	C.Color = get("ESP_ChamsColor", Color3.fromRGB(255, 255, 255))
+	C.Opacity = get("ESP_Opacity", 75)
+	C.VisibleOnly = get("ESP_VisibleOnly", false)
+end
+
 local DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 
 -- state[character] = { model = Highlight|nil, parts = { [part] = Highlight } }
@@ -147,11 +162,8 @@ end
 -- ===== Player lifecycle =====
 local function applyToCharacter(character)
 	if not character or not character:IsA("Model") then return end
-	if not flag("ESP_Chams", false) then return end
-	local color = flag("ESP_ChamsColor", Color3.fromRGB(255, 255, 255))
-	local opacity = flag("ESP_Opacity", 75)
-	local visibleOnly = flag("ESP_VisibleOnly", false)
-	updateCharacter(character, color, opacity, visibleOnly)
+	if not C.Enabled then return end
+	updateCharacter(character, C.Color, C.Opacity, C.VisibleOnly)
 end
 
 local function hookPlayer(player)
@@ -194,11 +206,12 @@ task.spawn(function()
 
 	while true do
 		task.wait(0.1)
+		RefreshCache()
 
-		local enabled = flag("ESP_Chams", false)
-		local color = flag("ESP_ChamsColor", Color3.fromRGB(255, 255, 255))
-		local opacity = flag("ESP_Opacity", 75)
-		local visibleOnly = flag("ESP_VisibleOnly", false)
+		local enabled = C.Enabled
+		local color = C.Color
+		local opacity = C.Opacity
+		local visibleOnly = C.VisibleOnly
 
 		if enabled ~= lastEnabled then
 			if enabled then
