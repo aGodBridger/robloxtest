@@ -1,13 +1,11 @@
--- // VisionWare Silent Aim
--- // Redirects the shot toward the best target WITHOUT moving the camera.
--- // Hooks multiple shooting vectors so it works across games:
--- //   - Workspace:Raycast / FindPartOnRay*  (via game:__namecall)
--- //   - Mouse.Hit / Mouse.Target            (via Mouse class __index)
--- //   - Camera:ScreenPointToRay             (via camera __namecall)
+-- // VisionWare Silent Aim (Body-Rotate mode)
+-- // The camera is NEVER touched/moved. Instead the character's HumanoidRootPart
+-- // is yaw-rotated to face the best target, so shots travel toward the enemy
+-- // while you keep full, independent control of the camera.
+-- // Uses the project Library (gui.lua) flags: SilentAim_*
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
@@ -26,7 +24,6 @@ local function RefreshCache()
 	end
 	C.Enabled = get("SilentAim_Enabled", true) and not get("Misc_Panic", false)
 	C.Hitpart = get("SilentAim_Hitpart", "Head")
-	C.Method = get("SilentAim_Method", "Raycast")
 	C.TeamCheck = get("SilentAim_TeamCheck", false)
 	C.VisibleCheck = get("SilentAim_VisibleCheck", false)
 	C.FoV = get("SilentAim_FoV", true)
@@ -36,18 +33,6 @@ local function RefreshCache()
 	C.Prediction = get("SilentAim_Prediction", false)
 	C.PredAmount = get("SilentAim_PredAmount", 0.165)
 end
-
--- cache exec-only functions once (guarded)
-local hookmetamethod = hookmetamethod or (getgenv and getgenv().hookmetamethod)
-local newcclosure = newcclosure or (getgenv and getgenv().newcclosure)
-local checkcaller = checkcaller or (getgenv and getgenv().checkcaller)
-local getnamecallmethod = getnamecallmethod or (getgenv and getgenv().getnamecallmethod)
-local getrawmetatable = getrawmetatable or (getgenv and getgenv().getrawmetatable)
-
-local HaveHooks = type(hookmetamethod) == "function"
-	and type(newcclosure) == "function"
-	and type(checkcaller) == "function"
-	and type(getnamecallmethod) == "function"
 
 local function FindPart(character, partName)
 	if not character then return nil end
@@ -85,7 +70,7 @@ local function CalculateChance(percentage)
 	return math.random() * 100 <= (percentage or 100)
 end
 
-local function predictedPoint(part)
+local function predictedPoint(part, camera)
 	if not C.Prediction or not part:IsA("BasePart") then return part.Position end
 	local v = part.AssemblyLinearVelocity
 	return part.Position + (v * C.PredAmount)
@@ -94,7 +79,8 @@ end
 local function getClosestTarget(camera)
 	if not camera then return nil end
 	local hitpartName = C.Hitpart
-	local mouse = UserInputService:GetMouseLocation()
+	local UIS = game:GetService("UserInputService")
+	local mouse = UIS:GetMouseLocation()
 	local best, bestDist = nil, 1e9
 	local radius = C.FoV and FovScreenRadius(C.FoVSize, camera.ViewportSize.Y, camera.FieldOfView) or 1e9
 
@@ -122,12 +108,21 @@ local function getClosestTarget(camera)
 	return best
 end
 
--- once-per-method debug print so you can see which vector the game uses
-local Logged = {}
-local function debugHit(method)
-	if Logged[method] then return end
-	Logged[method] = true
-	print(("[VisionWare] Silent Aim redirect fired via %s"):format(method))
+-- ===== Body rotation =====
+local function rotateCharacterTo(target)
+	local character = LocalPlayer.Character
+	if not character then return end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local aimPoint = predictedPoint(target, Workspace.CurrentCamera)
+	local pos = root.Position
+	local dir = Vector3.new(aimPoint.X - pos.X, 0, aimPoint.Z - pos.Z)
+	if dir.Magnitude < 0.01 then return end
+
+	-- yaw-only rotation so the character stays upright and the camera is untouched
+	local yaw = math.atan2(dir.X, dir.Z)
+	root.CFrame = CFrame.new(pos.X, pos.Y, pos.Z) * CFrame.Angles(0, yaw, 0)
 end
 
 -- ===== Target box overlay (line-based: executor can't render Drawing "Square") =====
@@ -157,162 +152,46 @@ RunService.RenderStepped:Connect(function()
 		hideTargetBox()
 		return
 	end
-	if C.ShowTarget then
-		local target = getClosestTarget(camera)
-		if target then
-			local screen, onScreen = camera:WorldToViewportPoint(target.Position)
-			if onScreen then
-				local cx, cy = screen.X, screen.Y
-				local s = 12
-				local segs = {
-					{ cx - s, cy - s, cx - s / 2, cy - s },
-					{ cx + s / 2, cy - s, cx + s, cy - s },
-					{ cx - s, cy + s / 2, cx - s, cy + s },
-					{ cx + s / 2, cy + s, cx + s, cy + s },
-					{ cx - s, cy - s, cx - s, cy - s / 2 },
-					{ cx - s, cy + s, cx - s, cy + s / 2 },
-					{ cx + s, cy - s, cx + s, cy - s / 2 },
-					{ cx + s, cy + s, cx + s, cy + s / 2 },
-				}
-				for i, p in ipairs(segs) do
-					local line = TargetPool[i]
-					if line then
-						line.From = Vector2.new(p[1], p[2])
-						line.To = Vector2.new(p[3], p[4])
-						line.Visible = true
-					end
+
+	local target = getClosestTarget(camera)
+	if target and CalculateChance(C.HitChance) then
+		rotateCharacterTo(target)
+	else
+		hideTargetBox()
+	end
+
+	if C.ShowTarget and target then
+		local screen, onScreen = camera:WorldToViewportPoint(target.Position)
+		if onScreen then
+			local cx, cy = screen.X, screen.Y
+			local s = 12
+			local segs = {
+				{ cx - s, cy - s, cx - s / 2, cy - s },
+				{ cx + s / 2, cy - s, cx + s, cy - s },
+				{ cx - s, cy + s / 2, cx - s, cy + s },
+				{ cx + s / 2, cy + s, cx + s, cy + s },
+				{ cx - s, cy - s, cx - s, cy - s / 2 },
+				{ cx - s, cy + s, cx - s, cy + s / 2 },
+				{ cx + s, cy - s, cx + s, cy - s / 2 },
+				{ cx + s, cy + s, cx + s, cy + s / 2 },
+			}
+			for i, p in ipairs(segs) do
+				local line = TargetPool[i]
+				if line then
+					line.From = Vector2.new(p[1], p[2])
+					line.To = Vector2.new(p[3], p[4])
+					line.Visible = true
 				end
-			else
-				hideTargetBox()
 			end
 		else
 			hideTargetBox()
 		end
+	else
+		hideTargetBox()
 	end
 	for i = 9, #TargetPool do
 		if TargetPool[i] then TargetPool[i].Visible = false end
 	end
 end)
 
-if not HaveHooks then
-	warn("[VisionWare] Silent Aim needs hookmetamethod/newcclosure/checkcaller - disabled.")
-	return
-end
-
-local WorkspaceHookMetatable = Workspace
-
--- ===== Hook 1: Workspace raycast family (game:__namecall) =====
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(...)
-	local self = ...
-	if not (C.Enabled and self == Workspace and not checkcaller()) then
-		return oldNamecall(...)
-	end
-
-	local method = getnamecallmethod()
-	local args = { ... }
-
-	if method == "Raycast" and (C.Method == "Raycast" or C.Method == "All") and #args >= 3 then
-		if CalculateChance(C.HitChance) then
-			local target = getClosestTarget(Workspace.CurrentCamera)
-			if target then
-				local origin = args[2]
-				args[3] = (predictedPoint(target) - origin).Unit * 1000
-				debugHit("Workspace:Raycast")
-			end
-		end
-		return oldNamecall(unpack(args))
-	end
-
-	if method == "FindPartOnRayWithIgnoreList" and (C.Method == "FindPartOnRayWithIgnoreList" or C.Method == "All") and #args >= 2 then
-		if CalculateChance(C.HitChance) then
-			local target = getClosestTarget(Workspace.CurrentCamera)
-			local aRay = args[2]
-			if target and aRay then
-				args[2] = Ray.new(aRay.Origin, (predictedPoint(target) - aRay.Origin).Unit * 1000)
-				debugHit("FindPartOnRayWithIgnoreList")
-			end
-		end
-		return oldNamecall(unpack(args))
-	end
-
-	if method == "FindPartOnRayWithWhitelist" and (C.Method == "FindPartOnRayWithWhitelist" or C.Method == "All") and #args >= 2 then
-		if CalculateChance(C.HitChance) then
-			local target = getClosestTarget(Workspace.CurrentCamera)
-			local aRay = args[2]
-			if target and aRay then
-				args[2] = Ray.new(aRay.Origin, (predictedPoint(target) - aRay.Origin).Unit * 1000)
-				debugHit("FindPartOnRayWithWhitelist")
-			end
-		end
-		return oldNamecall(unpack(args))
-	end
-
-	if (method == "FindPartOnRay" or method == "findPartOnRay") and (C.Method == "FindPartOnRay" or C.Method == "All") and #args >= 2 then
-		if CalculateChance(C.HitChance) then
-			local target = getClosestTarget(Workspace.CurrentCamera)
-			local aRay = args[2]
-			if target and aRay then
-				args[2] = Ray.new(aRay.Origin, (predictedPoint(target) - aRay.Origin).Unit * 1000)
-				debugHit("FindPartOnRay")
-			end
-		end
-		return oldNamecall(unpack(args))
-	end
-
-	return oldNamecall(...)
-end))
-
--- ===== Hook 2: Camera:ScreenPointToRay (what a lot of FPS games use to fire) =====
-local oldCamera
-do
-	local cam = Workspace.CurrentCamera
-	if cam then
-		oldCamera = getnamecallmethod and hookmetamethod(cam, "__namecall", newcclosure(function(...)
-			local self = ...
-			if not (C.Enabled and self == Workspace.CurrentCamera and not checkcaller()) then
-				return oldCamera(...)
-			end
-			local method = getnamecallmethod()
-			if (method == "ScreenPointToRay") and (C.Method == "Raycast" or C.Method == "All") then
-				local target = getClosestTarget(self)
-				if target and CalculateChance(C.HitChance) then
-					debugHit("Camera:ScreenPointToRay")
-					return Ray.new(self.CFrame.Position, (predictedPoint(target) - self.CFrame.Position).Unit * 1000)
-				end
-			end
-			return oldCamera(...)
-		end))
-	end
-end
-
--- ===== Hook 3: Mouse.Hit / Mouse.Target (via the Mouse __index) =====
-local oldMouseIndex
-do
-	local mouse = LocalPlayer:GetMouse()
-	local mm = getrawmetatable and getrawmetatable(mouse)
-	if type(mm) == "table" and type(oldMouseIndex) ~= "function" then
-		oldMouseIndex = hookmetamethod(mm, "__index", newcclosure(function(self, index)
-			if self == mouse and C.Enabled and not checkcaller() and (C.Method == "Mouse.Hit/Target" or C.Method == "All") then
-				local target = getClosestTarget(Workspace.CurrentCamera)
-				if target then
-					if index == "Target" or index == "target" then
-						return target
-					elseif index == "Hit" or index == "hit" then
-						debugHit("Mouse.Hit")
-						return CFrame.new(predictedPoint(target))
-					elseif index == "X" or index == "x" then
-						return self.X
-					elseif index == "Y" or index == "y" then
-						return self.Y
-					elseif index == "UnitRay" then
-						return Ray.new(self.Origin, (self.Hit - self.Origin).Unit)
-					end
-				end
-			end
-			return oldMouseIndex(self, index)
-		end))
-	end
-end
-
-print("[VisionWare] Silent Aim loaded (camera is never moved)")
+print("[VisionWare] Silent Aim loaded (body-rotate mode, camera is never moved)")
