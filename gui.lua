@@ -4474,7 +4474,7 @@ Aimbot:Toggle({Name = "Team Check", Flag = "Aimbot_TeamCheck", Default = true})
 
 Trigger:Toggle({Name = "Enable Silent Aim", Flag = "SilentAim_Enabled", Default = true})
 Trigger:List({Name = "Silent Hitpart", Flag = "SilentAim_Hitpart", Options = {"Head", "HumanoidRootPart", "Torso"}, Default = "Head"})
-Trigger:List({Name = "Silent Method", Flag = "SilentAim_Method", Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithIgnoreList", "FindPartOnRayWithWhitelist", "Mouse.Hit/Target"}, Default = "Raycast"})
+Trigger:List({Name = "Silent Method", Flag = "SilentAim_Method", Options = {"Raycast", "FindPartOnRay", "FindPartOnRayWithIgnoreList", "FindPartOnRayWithWhitelist", "Mouse.Hit/Target", "All"}, Default = "All"})
 Trigger:Toggle({Name = "Silent Team Check", Flag = "SilentAim_TeamCheck"})
 Trigger:Toggle({Name = "Silent Visible Check", Flag = "SilentAim_VisibleCheck"})
 Trigger:Toggle({Name = "Silent FoV", Flag = "SilentAim_FoV", Default = true})
