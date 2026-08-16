@@ -47,10 +47,22 @@ local function TracerOrigin(camera)
 	return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
 end
 
-local haveDrawing = type(Drawing) == "table" and type(Drawing.new) == "function"
-if haveDrawing then
-	local ok, d = pcall(Drawing.new, "Line")
-	if not ok or not d then haveDrawing = false end
+-- Require ALL drawing kinds to work before trusting the Drawing API.
+-- Some executors expose Drawing.new but return nil for certain kinds,
+-- which used to throw inside RenderStepped and silently kill all rendering.
+local haveDrawing = false
+do
+	if type(Drawing) == "table" and type(Drawing.new) == "function" then
+		local okLine, line = pcall(Drawing.new, "Line")
+		local okSq, sq = pcall(Drawing.new, "Square")
+		local okTxt, txt = pcall(Drawing.new, "Text")
+		if okLine and line and okSq and sq and okTxt and txt then
+			haveDrawing = true
+			pcall(function() line:Remove() end)
+			pcall(function() sq:Remove() end)
+			pcall(function() txt:Remove() end)
+		end
+	end
 end
 
 -- ================= DRAWING BACKEND =================
@@ -68,10 +80,12 @@ local function newLinePool(count)
 	for i = 1, count do
 		local line = safeDrawing("Line")
 		if line then
-			line.Visible = false
-			line.Color = Color3.new(1, 1, 1)
-			line.Thickness = 1
-			pool[i] = line
+			local ok = pcall(function()
+				line.Visible = false
+				line.Color = Color3.new(1, 1, 1)
+				line.Thickness = 1
+			end)
+			if ok then pool[i] = line end
 		end
 	end
 	return pool
@@ -80,12 +94,18 @@ end
 local function newText()
 	local text = safeDrawing("Text")
 	if text then
-		text.Visible = false
-		text.Center = true
-		text.Size = 13
-		text.Color = Color3.new(1, 1, 1)
-		text.Outline = true
-		text.Font = Enum.Font.RobotoMono
+		local ok = pcall(function()
+			text.Visible = false
+			text.Center = true
+			text.Size = 13
+			text.Color = Color3.new(1, 1, 1)
+			text.Outline = true
+			text.Font = Enum.Font.RobotoMono
+		end)
+		if not ok then
+			pcall(function() text:Remove() end)
+			return nil
+		end
 	end
 	return text
 end
@@ -93,11 +113,17 @@ end
 local function newSquare(filled)
 	local square = safeDrawing("Square")
 	if square then
-		square.Visible = false
-		square.Color = Color3.new(1, 1, 1)
-		square.Filled = filled
-		square.Thickness = 1
-		square.Transparency = 0
+		local ok = pcall(function()
+			square.Visible = false
+			square.Color = Color3.new(1, 1, 1)
+			square.Filled = filled
+			square.Thickness = 1
+			square.Transparency = 0
+		end)
+		if not ok then
+			pcall(function() square:Remove() end)
+			return nil
+		end
 	end
 	return square
 end
@@ -442,6 +468,8 @@ local function updatePlayer(player, esp, camera)
 			if line then line.Visible = false end
 		end
 	end
+
+	return true
 end
 
 -- ================= UI BACKEND =================
@@ -690,9 +718,62 @@ local function updatePlayerUI(player, fb, camera)
 	else
 		fb.Head.Visible = false
 	end
+
+	return true
 end
 
 -- ================= MAIN =================
+
+local StatusGUI = nil
+local StatusLabel = nil
+local LastError = nil
+local VisibleCount = 0
+local PlayerCount = 0
+
+local function SetupStatus()
+	if StatusGUI then return end
+	StatusGUI = Instance.new("ScreenGui")
+	StatusGUI.Name = "VisionWareESPStatus"
+	StatusGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	StatusGUI.IgnoreGuiInset = true
+	local ok = pcall(function() StatusGUI.Parent = game:GetService("CoreGui") end)
+	if not ok or not StatusGUI.Parent then
+		pcall(function() StatusGUI.Parent = LocalPlayer:WaitForChild("PlayerGui", 5) end)
+	end
+	if not StatusGUI.Parent then
+		StatusGUI:Destroy()
+		StatusGUI = nil
+		return
+	end
+	StatusLabel = Instance.new("TextLabel", StatusGUI)
+	StatusLabel.Name = "Status"
+	StatusLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+	StatusLabel.BackgroundTransparency = 0.35
+	StatusLabel.BorderSizePixel = 0
+	StatusLabel.Font = Enum.Font.RobotoMono
+	StatusLabel.TextColor3 = Color3.new(255, 255, 255)
+	StatusLabel.TextSize = 13
+	StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	StatusLabel.Position = UDim2.fromOffset(8, 8)
+	StatusLabel.Size = UDim2.fromOffset(320, 46)
+	StatusLabel.Text = "VisionWare ESP - starting..."
+end
+
+local doneSetup = false
+
+local function statusText()
+	local backend = haveDrawing and "Drawing API" or "UI Frames"
+	local line = "ESP [" .. backend .. "] visible: " .. VisibleCount .. "/" .. PlayerCount
+	if LastError then
+		line = line .. " | error: " .. tostring(LastError)
+	end
+	if not flag("ESP_Enabled", true) then
+		line = "ESP DISABLED (toggle ESP page)"
+	elseif flag("Misc_Panic", false) then
+		line = "ESP DISABLED (Panic ON)"
+	end
+	return line
+end
 
 Players.PlayerAdded:Connect(function(p)
 	if p == LocalPlayer then return end
@@ -713,35 +794,63 @@ for _, player in ipairs(Players:GetPlayers()) do
 	end
 end
 
+local function renderPlayerDrawing(player, camera)
+	local esp = Drawings[player]
+	if not esp then return end
+	if not flag("ESP_Enabled", true) or flag("Misc_Panic", false) then
+		hidePlayer(esp)
+		return
+	end
+	local ok, err = pcall(updatePlayer, player, esp, camera)
+	if ok and err == true then
+		VisibleCount = VisibleCount + 1
+	elseif not ok then
+		hidePlayer(esp)
+		LastError = err
+	end
+end
+
+local function renderPlayerUI(player, camera)
+	if not UIPlayers[player] then CreateUIFallback(player) end
+	local fb = UIPlayers[player]
+	if not fb then return end
+	if not flag("ESP_Enabled", true) or flag("Misc_Panic", false) then
+		hideUIPlayer(fb)
+		return
+	end
+	local ok, err = pcall(updatePlayerUI, player, fb, camera)
+	if ok and err == true then
+		VisibleCount = VisibleCount + 1
+	elseif not ok then
+		hideUIPlayer(fb)
+		LastError = err
+	end
+end
+
 RunService.RenderStepped:Connect(function()
+	if not doneSetup then
+		SetupStatus()
+		doneSetup = true
+	end
+
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
 
-	local panic = flag("Misc_Panic", false)
-	local enabled = not panic and flag("ESP_Enabled", true)
-
+	PlayerCount = 0
+	VisibleCount = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
+			PlayerCount = PlayerCount + 1
 			if haveDrawing then
-				if enabled then
-					if not Drawings[player] then CreateESP(player) end
-					local esp = Drawings[player]
-					if esp then updatePlayer(player, esp, camera) end
-				else
-					local esp = Drawings[player]
-					if esp then hidePlayer(esp) end
-				end
+				renderPlayerDrawing(player, camera)
 			else
-				if not UIPlayers[player] then CreateUIFallback(player) end
-				if enabled then
-					local fb = UIPlayers[player]
-					if fb then updatePlayerUI(player, fb, camera) end
-				else
-					local fb = UIPlayers[player]
-					if fb then hideUIPlayer(fb) end
-				end
+				renderPlayerUI(player, camera)
 			end
 		end
+	end
+
+	if StatusLabel and flag("ESP_Status", true) then
+		StatusLabel.Text = statusText()
 	end
 end)
 
