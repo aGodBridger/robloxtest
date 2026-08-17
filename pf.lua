@@ -136,10 +136,48 @@ function Pf.HasCustomModels()
 	return not not (folder and #folder:GetChildren() > 0)
 end
 
+local PF_TEAMS = {
+	["Bright blue"] = "Phantoms",
+	["Bright orange"] = "Ghosts",
+}
+
+-- PF never gives us a usable Playing-Team mid-match; it ONLY colors the
+-- player's TeamColor (Bright blue = Phantoms, Bright orange = Ghosts).
+-- Resolve the team name from a BrickColor so ESP/aimbot can do team checks.
+function Pf.TeamName(teamColor)
+	return PF_TEAMS[tostring(teamColor)] or nil
+end
+
+-- true/false when both players have a mapped PF team color, nil otherwise.
+function Pf.IsEnemy(player)
+	if not player then return false end
+	local mine = Pf.TeamName(LocalPlayer and LocalPlayer.TeamColor)
+	local theirs = Pf.TeamName(player and player.TeamColor)
+	if not mine or not theirs then return nil end
+	return theirs ~= mine
+end
+
 local function findCustomModel(player)
 	if not player then return nil end
+
+	-- match by PlayerTag label first (PF spawns these with the player name)
 	local folder = Workspace:FindFirstChild("Players")
 	if folder then
+		for _, m in ipairs(folder:GetChildren()) do
+			if m:IsA("Model") then
+				local tag = m:FindFirstChild("PlayerTag", true)
+				if tag and tag:IsA("TextLabel") then
+					local name = (tag.Text or ""):match("^%s*(.-)%s*$") or ""
+					if (name == player.Name)
+						or (player.DisplayName and name == player.DisplayName) then
+						if m:FindFirstChild("Head") or m:FindFirstChild("Torso") then
+							return m
+						end
+					end
+				end
+			end
+		end
+		-- fall back to model name matching
 		for _, m in ipairs(folder:GetChildren()) do
 			if m:IsA("Model")
 				and (m.Name == player.Name or (player.DisplayName and m.Name == player.DisplayName)) then
@@ -156,6 +194,11 @@ local function findCustomModel(player)
 	return nil
 end
 
+-- Exposed for ESP/other modules that need the replicated workspace model.
+function Pf.FindCustomModel(player)
+	return findCustomModel(player)
+end
+
 local function customModelParts(m)
 	if not m then return nil, nil end
 	local head = m:FindFirstChild("Head")
@@ -164,6 +207,39 @@ local function customModelParts(m)
 			or m:FindFirstChild("UpperTorso")
 			or head
 	return head, root
+end
+
+-- Highest BasePart in a model = the head position the aimbot aims at.
+function Pf.GetModelCenter(model)
+	local highestPart, highestY = nil, -math.huge
+	if model then
+		for _, v in ipairs(model:GetDescendants()) do
+			if v:IsA("BasePart") and v.Position.Y > highestY then
+				highestY = v.Position.Y
+				highestPart = v
+			end
+		end
+	end
+	return highestPart and highestPart.Position or nil
+end
+
+-- Iterate every PF custom player model under workspace.Players, each with
+-- its owning player + enemy state resolved via TeamColor.
+function Pf.ForEachWorkspaceModel(cb)
+	local folder = Workspace:FindFirstChild("Players")
+	if not folder then return end
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") then
+			local tag = m:FindFirstChild("PlayerTag", true)
+			local name = tag and tag:IsA("TextLabel") and (tag.Text or ""):match("^%s*(.-)%s*$") or nil
+			local player = name and Players:FindFirstChild(name) or nil
+			if player and player ~= LocalPlayer then
+				local isEnemy = Pf.IsEnemy(player)
+				if isEnemy == nil then isEnemy = true end
+				pcall(cb, m, player, isEnemy)
+			end
+		end
+	end
 end
 
 -- Bounding-box size of the hash parts (used when no character Model exists).
@@ -348,7 +424,12 @@ function Pf.Resolve(player)
 
 	local enemy = not not (entry and entry._isEnemy)
 	if not entry then
-		enemy = not (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
+		local pfEnemy = Pf.IsEnemy(player)
+		if pfEnemy ~= nil then
+			enemy = pfEnemy
+		else
+			enemy = not (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
+		end
 	end
 
 	return {
@@ -375,13 +456,21 @@ local function FovScreenRadius(fovDeg, viewportY, camFov)
 end
 
 function Pf.RayVisible(camera, part)
+	local pos
+	if type(part) == "table" and typeof(part) == "Vector3" then
+		pos = part
+		part = nil
+	elseif part then
+		pcall(function() pos = part.Position end)
+	end
+	if not pos then return true end
 	local ok, model = pcall(part.FindFirstAncestorOfClass, part, "Model")
 	local params = RaycastParams.new()
 	params.FilterDescendantsInstances = { model, LocalPlayer and LocalPlayer.Character }
 	params.FilterType = Enum.RaycastFilterType.Blacklist
 	params.IgnoreWater = true
 	local rayOrigin = camera.CFrame.Position
-	local result = Workspace:Raycast(rayOrigin, part.Position - rayOrigin, params)
+	local result = Workspace:Raycast(rayOrigin, pos - rayOrigin, params)
 	if not result then return true end
 	if result.Instance and ok and model then
 		local isDesc, okD = pcall(result.Instance.IsDescendantOf, result.Instance, model)
@@ -450,7 +539,10 @@ function Pf.PickTarget(camera, partName, useFoV, fovSize, visibleCheck, teamChec
 			if player ~= LocalPlayer then
 				local m = findCustomModel(player)
 				if m then
-					local isEnemy = not (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
+					local isEnemy = Pf.IsEnemy(player)
+					if isEnemy == nil then
+						isEnemy = not (player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team)
+					end
 					local part
 					if partName == "Torso" then
 						part = m:FindFirstChild("Torso") or m:FindFirstChild("UpperTorso") or m:FindFirstChild("HumanoidRootPart")

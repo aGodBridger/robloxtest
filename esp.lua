@@ -6,6 +6,12 @@ local LocalPlayer = Players.LocalPlayer
 
 local Pf = _G.Pf or (getgenv and getgenv().Pf)
 
+-- TEAM DETECTION for Phantom Forces (from first script)
+local TEAMS = {
+    ["Bright blue"]   = "Phantoms",
+    ["Bright orange"] = "Ghosts",
+}
+
 local Library = _G.Library
 local Color3fromRGB = Color3.fromRGB
 local Vector2_new = Vector2.new
@@ -69,7 +75,70 @@ local function RefreshCache()
 	C.SkeletonThickness = get("ESP_SkeletonThickness", 1)
 	C.TeamColor = get("ESP_TeamColor", Color3fromRGB(86, 227, 120))
 	C.EnemyColor = get("ESP_EnemyColor", Color3fromRGB(255, 25, 25))
+	C.Status = get("ESP_Status", true)
 end
+
+-- ============================================================
+--  PHANTOM FORCES DETECTION (from first script)
+-- ============================================================
+
+-- Get the highest part of the model (head)
+local function getModelCenter(model)
+	local highestPart = nil
+	local highestY = -math.huge
+	for _, v in ipairs(model:GetDescendants()) do
+		if v:IsA("BasePart") and v.Position.Y > highestY then
+			highestY = v.Position.Y
+			highestPart = v
+		end
+	end
+	return highestPart
+end
+
+-- Find a player's model in workspace (PF compatible)
+local function findPlayerModel(player)
+	if not player then return nil end
+	-- Try PF custom model first
+	if Pf and Pf.FindCustomModel then
+		local model = Pf.FindCustomModel(player)
+		if model then return model end
+	end
+	-- Try standard character
+	local char = player.Character
+	if char and char.Parent then return char end
+	-- Search workspace.Players for model with PlayerTag
+	for _, model in ipairs(workspace.Players:GetChildren()) do
+		if model:IsA("Model") then
+			local tag = model:FindFirstChild("PlayerTag", true)
+			if tag and tag:IsA("TextLabel") then
+				local name = tag.Text:match("^%s*(.-)%s*$")
+				if name == player.Name then
+					return model
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- Check if a player is an enemy (team color based)
+local function isEnemyPlayer(player)
+	if not player then return true end
+	if not C.TeamCheck then return true end
+	local localTeam = TEAMS[tostring(LocalPlayer.TeamColor)] or "Unknown"
+	local enemyTeam = TEAMS[tostring(player.TeamColor)] or "Unknown"
+	if enemyTeam == "Unknown" then return true end
+	return enemyTeam ~= localTeam
+end
+
+-- Get local team name
+local function getLocalTeam()
+	return TEAMS[tostring(LocalPlayer.TeamColor)] or "Unknown"
+end
+
+-- ============================================================
+--  CUSTOM RESOLVE PLAYER (PF compatible)
+-- ============================================================
 
 local function GetColor(player, isEnemy)
 	local L = Library
@@ -87,30 +156,58 @@ local function GetColor(player, isEnemy)
 	return C.EnemyColor
 end
 
--- Resolve a player's ESP data. In Phantom Forces we read the game's
--- replicated character (PF hides Humanoids/teams from the normal API) or
--- fall back to PF's custom models under workspace.Players.
--- Returns a view: { Character, Root, Head, Hash, Health, MaxHealth, Enemy }.
+-- Resolve a player's ESP data. Works for both PF and regular games.
 local function ResolvePlayer(player)
-	if Pf and (Pf.Active or Pf.TemplateMode) then
-		return Pf.Resolve(player)
+	if not player or player == LocalPlayer then return nil end
+	
+	-- Get the model
+	local model = findPlayerModel(player)
+	if not model then return nil end
+	
+	-- Get root part and head
+	local root = model:FindFirstChild("HumanoidRootPart") 
+			or model:FindFirstChild("Torso")
+			or model:FindFirstChild("UpperTorso")
+			or model:FindFirstChild("LowerTorso")
+	local head = model:FindFirstChild("Head") 
+			or getModelCenter(model)  -- Fallback to highest part
+	
+	if not root and not head then return nil end
+	
+	-- Get size
+	local size = model:GetExtentsSize()
+	if size.Magnitude < 0.1 then
+		size = Vector3_new(4, 5.5, 2)  -- Default humanoid size
 	end
-	local character = player.Character
-	if not character then return nil end
-	local rootPart = character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not rootPart or not humanoid then return nil end
-	local isEnemy = true
-	if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
-		isEnemy = false
+	
+	-- Get health (PF doesn't have Humanoid, default to 100)
+	local health, maxHealth = 100, 100
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		health = humanoid.Health
+		maxHealth = humanoid.MaxHealth
 	end
+	
+	-- Check if enemy using team colors
+	local isEnemy = isEnemyPlayer(player)
+	
+	-- If PF has its own resolve, use it for health
+	if Pf and Pf.Active and Pf.Resolve then
+		local view = Pf.Resolve(player)
+		if view and view.Health then
+			health, maxHealth = view.Health, view.MaxHealth or 100
+			isEnemy = view.Enemy
+		end
+	end
+	
 	return {
-		Character = character,
-		Root = rootPart,
-		Head = character:FindFirstChild("Head"),
-		Health = humanoid.Health,
-		MaxHealth = humanoid.MaxHealth,
+		Character = model,
+		Root = root or head,
+		Head = head,
+		Health = health,
+		MaxHealth = maxHealth,
 		Enemy = isEnemy,
+		Size = size,
 	}
 end
 
@@ -1009,13 +1106,45 @@ local function statusText()
 	return line
 end
 
+-- Track PF players using workspace detection
+local pfTrackedPlayers = {}
+
+local function scanPFPlayers()
+	if not (Pf and Pf.Active) then return end
+	
+	-- Scan workspace.Players for models with PlayerTag
+	for _, model in ipairs(workspace.Players:GetChildren()) do
+		if model:IsA("Model") then
+			local tag = model:FindFirstChild("PlayerTag", true)
+			if tag and tag:IsA("TextLabel") then
+				local name = tag.Text:match("^%s*(.-)%s*$")
+				if name and name ~= LocalPlayer.Name then
+					local player = Players:FindFirstChild(name)
+					if player and player ~= LocalPlayer then
+						if not pfTrackedPlayers[player] then
+							pfTrackedPlayers[player] = true
+							if haveDrawing then
+								CreateESP(player)
+							else
+								CreateUIFallback(player)
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 Players.PlayerAdded:Connect(function(p)
 	if p == LocalPlayer then return end
 	if haveDrawing then CreateESP(p) else CreateUIFallback(p) end
 end)
+
 Players.PlayerRemoving:Connect(function(p)
 	RemoveESP(p)
 	RemoveUIFallback(p)
+	pfTrackedPlayers[p] = nil
 end)
 
 for _, player in ipairs(Players:GetPlayers()) do
@@ -1071,16 +1200,27 @@ RunService.RenderStepped:Connect(function()
 	if not camera then return end
 
 	RefreshCache()
+	
+	-- If PF is active, scan for PF players
+	if Pf and Pf.Active then
+		scanPFPlayers()
+	end
 
 	PlayerCount = 0
 	VisibleCount = 0
+	
+	-- Render all players (regular + PF detected)
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
-			PlayerCount = PlayerCount + 1
-			if haveDrawing then
-				renderPlayerDrawing(player, camera)
-			else
-				renderPlayerUI(player, camera)
+			-- Check if this player has a valid model (PF or regular)
+			local model = findPlayerModel(player)
+			if model then
+				PlayerCount = PlayerCount + 1
+				if haveDrawing then
+					renderPlayerDrawing(player, camera)
+				else
+					renderPlayerUI(player, camera)
+				end
 			end
 		end
 	end
@@ -1091,8 +1231,8 @@ RunService.RenderStepped:Connect(function()
 end)
 
 if haveDrawing then
-	print("[VisionWare] ESP loaded (Drawing API)")
+	print("[VisionWare] ESP loaded (Drawing API) - PF Compatible")
 else
 	warn("[VisionWare] Drawing API not found - using UI fallback.")
-	print("[VisionWare] ESP loaded (UI fallback)")
+	print("[VisionWare] ESP loaded (UI fallback) - PF Compatible")
 end
